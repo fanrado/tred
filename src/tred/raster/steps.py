@@ -615,32 +615,45 @@ def eval_qeff(Q, X0, X1, Sigma, offset, shape, origin, grid_spacing, method, npo
         usequad = False
 
     skippad = kwargs.get('skippad', False)
-    # FIXME: Not friendly to jit
-    mem_limit = kwargs.get('mem_limit', 10*1024) # MB
+    ##------------------ RADO START -------------------
+    ## Disable dynamic chunking and batching
+    # # FIXME: Not friendly to jit
+    # mem_limit = kwargs.get('mem_limit', 12*1024) # MB
 
-    # FIXME: not friendly to JIT
-    # FIXME: only support 3D
-    # at most 100 elements per axis by default
-    xyz_limit = kwargs.get('xyz_limit', torch.tensor([100, 100, 100], requires_grad=False,
-                                                     dtype=index_dtype, device=device))
-    shape_limit = kwargs.get('shape_limit', 1000_000) # 1000_000 elements by default
-    xyzchunk = (xyz_limit < shape) & (torch.prod(shape) > shape_limit) # check the axis
-    xyzchunkidx = torch.argmax(shape) # which one to use later
-    usex, usey, usez = xyzchunk & (torch.arange(3, device=device) == xyzchunkidx)
-    xchunk, ychunk, zchunk = xyz_limit[0], xyz_limit[1], xyz_limit[2]
+    # # FIXME: not friendly to JIT
+    # # FIXME: only support 3D
+    # # at most 100 elements per axis by default
+    # xyz_limit = kwargs.get('xyz_limit', torch.tensor([100, 100, 100], requires_grad=False,
+    #                                                  dtype=index_dtype, device=device))
+    # shape_limit = kwargs.get('shape_limit', 1000_000) # 1000_000 elements by default
+    # xyzchunk = (xyz_limit < shape) & (torch.prod(shape) > shape_limit) # check the axis
+    # xyzchunkidx = torch.argmax(shape) # which one to use later
+    # usex, usey, usez = xyzchunk & (torch.arange(3, device=device) == xyzchunkidx)
+    # xchunk, ychunk, zchunk = xyz_limit[0], xyz_limit[1], xyz_limit[2]
 
-    # FIXME: dimensions are hard coded
+    # # FIXME: dimensions are hard coded
+    # kernel = create_wu_block(method, npoints, grid_spacing, device)
+    # kernel = torch.flip(kernel, [3, 4, 5]) # it does not matter we flip at first or we multiply w and u at first
+    # lmn = kernel.size()[:3]
+    # lmn_prod = lmn[0] * lmn[1] *lmn[2]
+    # rst = kernel.size()[3:]
+    # kernel = kernel.view(lmn_prod, 1, rst[0], rst[1], rst[2]) # out_channel, in_channel/groups, R, S, T
+
+    # # FIXME: Not friendly to jit
+    # nbtensor = Q.size(0) * torch.prod(shape+1) * lmn_prod * 4 / 1024**2 # MB
+    # nbtensor = nbtensor * 5 # intermediate states inflate memory by 5.
+    # nchunk = int(nbtensor // mem_limit) + 1
+    ##-------------------------------------
+    usex, usey, usez = False, False, False
+    xchunk, ychunk, zchunk = 1E30, 1E30, 1E30
+    nchunk = 1
     kernel = create_wu_block(method, npoints, grid_spacing, device)
     kernel = torch.flip(kernel, [3, 4, 5]) # it does not matter we flip at first or we multiply w and u at first
     lmn = kernel.size()[:3]
     lmn_prod = lmn[0] * lmn[1] *lmn[2]
     rst = kernel.size()[3:]
     kernel = kernel.view(lmn_prod, 1, rst[0], rst[1], rst[2]) # out_channel, in_channel/groups, R, S, T
-
-    # FIXME: Not friendly to jit
-    nbtensor = Q.size(0) * torch.prod(shape+1) * lmn_prod * 4 / 1024**2 # MB
-    nbtensor = nbtensor * 5 # intermediate states inflate memory by 5.
-    nchunk = int(nbtensor // mem_limit) + 1
+    ##------------------ RADO END -------------------
 
     x, y, z = create_node1ds(method, npoints, origin, grid_spacing, offset, shape, device)
     qeff = []

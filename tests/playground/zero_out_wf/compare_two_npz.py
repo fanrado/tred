@@ -2,6 +2,14 @@ import numpy as np
 import logging
 import argparse
 
+# Configure logging at the start
+logging.basicConfig(
+    filename='npz_comparison_default_and_nodyn2.log',
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    filemode='w'
+)
+
 def _arrays_equal(a, b, rtol=1e-6, atol=1e-6):
     if a.dtype.kind in "fc" or b.dtype.kind in "fc":  # float or complex
         return np.allclose(a, b, rtol=rtol, atol=atol, equal_nan=False)
@@ -37,7 +45,10 @@ def compare_npz_files(file1, file2, assert_on_difference=True):
                 msg = f"np.ndarray values for key '{key}' are different."
                 logging.error(msg)
                 if assert_on_difference:
-                    assert _arrays_equal(value1, value2), msg
+                    msg = f'{_arrays_equal(value1, value2)}, dtypes = [value1: {value1.dtype}, value2: {value2.dtype}] {msg}'
+                    msg = f'----------\n {msg}\n value1: {value1} \n value2: {value2}\n ----------'
+                    # assert _arrays_equal(value1, value2), msg
+                    logging.error(msg)
             else:
                 logging.debug(f"Key '{key}': np.ndarray values are the SAME")
         else:

@@ -29,9 +29,9 @@ import time
 import json
 
 # # set seed to 42 for reproducibility
-# torch.manual_seed(42)
-# torch.cuda.manual_seed_all(42)
-# np.random.seed(42)
+torch.manual_seed(42)
+torch.cuda.manual_seed_all(42)
+np.random.seed(42)
 
 module_yaml = None
 tile_yaml = None
@@ -189,7 +189,7 @@ def runit(device='cpu'):
     NBCHUNK = 100 # 100
     NBCHUNK_CONV = 50 # 50
     # eventually replace this hard-wire with configuration
-    twindow_max = 12_000 + 1200*10 # 12_000 * 50ns = 600us
+    twindow_max = 12_000 # 12_000 * 50ns = 600us
     DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     diffusion = torch.tensor([DL, DT, DT])
@@ -574,6 +574,7 @@ def runit(device='cpu'):
                 hitlf32 = transform_indices_to_coord_3d(hitl[:,:3], pitch, tspace, velocity,
                                                         tpc_lower_left.to(torch.float32), tpcdataset.anode, tpcdataset.drift,
                                                         paxes=(0,1), taxis=-1, offset=hoff)
+                
                 hitlf32 = hitlf32[:, [2,0,1]]
                 hitd = torch.cat([hitlf32, hits[1][:,None].cpu()], dim=1)
 
@@ -641,7 +642,7 @@ def runit(device='cpu'):
     info(f"Peak memory usage {torch.cuda.max_memory_allocated()/1024**2:.2f} MB")
     ##
     ## save peak memory usage per TPC and per batch
-    with open(f'/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/MEMORY_EVAL/peak_memory_usage.json', 'w') as fpm:
+    with open(f'/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/MEMORY_EVAL/peak_memory_usage_2.json', 'w') as fpm:
         json.dump(peak_memory_perTPC, fpm)
 
 def plots(out):

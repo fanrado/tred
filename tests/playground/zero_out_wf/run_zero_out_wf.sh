@@ -1,5 +1,8 @@
 #!/bin/bash
-OutputFile="$1"
-uv run tred -c config.yaml fullsim \
-   -i /home/yousen/Public/ndlar_shared/data/MR5_2x2_single_particles/segments_pid13.hdf5 \
+# OutputFile="$1"
+InputFile="/home/rrazakami/work/ND-LAr/data_tred/MicroProdN1p1_NDLAr_1E18_RHC.convert2h5.nu.0000001.EDEPSIM.hdf5"
+OutputFile="/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/MEMORY_EVAL/defaultconfig_event1004.npz"
+LogFile="/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/MEMORY_EVAL/log_defaultconfig_event1004.log"
+uv run tred -c config.yaml -l $LogFile fullsim \
+   -i $InputFile \
    -o $OutputFile

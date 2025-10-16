@@ -118,7 +118,10 @@ def ndlarsim(npy_path, nd_response_shape=None, nd_nimp=10):
 
     The shift and response shape are hard-coded. Use with caution.
     '''
-    nd_response_shape = list([45, 45,]) if nd_response_shape is None else list(nd_response_shape) # 4.5 pixels; pixel is aligned to the center
+    # nd_response_shape = list([45, 45,]) if nd_response_shape is None else list(nd_response_shape) # 4.5 pixels; pixel is aligned to the center
+    # nd_response_shape = list([25, 25,]) if nd_response_shape is None else list(nd_response_shape) # 2.5 pixels; pixel is aligned to the center
+    # nd_response_shape = list([20, 20,]) if nd_response_shape is None else list(nd_response_shape) # 2.0 pixels; pixel is aligned to the center
+    nd_response_shape = list([15, 15,]) if nd_response_shape is None else list(nd_response_shape) # 1.5 pixels; pixel is aligned to the center
     response_nimp = nd_nimp
     response_npxl = nd_response_shape[0]*2//response_nimp
 
@@ -136,6 +139,7 @@ def ndlarsim(npy_path, nd_response_shape=None, nd_nimp=10):
     nd_response_shape = tuple(nd_response_shape)
 
     if raw.shape != nd_response_shape:
+        print(f'raw.shape: {raw.shape}, expected: {nd_response_shape}')
         raise ValueError(f'unexpected shape {raw.shape} from {npy_path}')
 
     raw = torch.from_numpy(raw.astype(numpy.float32))

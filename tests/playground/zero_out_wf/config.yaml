@@ -6,7 +6,7 @@ module_yaml: "/home/rrazakami/work/ND-LAr/starting_over/MEMORY_EVAL/tests/playgr
 tile_yaml: "/home/rrazakami/work/ND-LAr/starting_over/MEMORY_EVAL/tests/playground/zero_out_wf/ndlarsim_geo/multi_tile_layout-3.0.40.yaml"
 lifetime: 2.2 # ms
 threshold: 5. # ke
-event_list: [1004] # event IDs to process
+event_list: [1003] # event IDs to process
 uncorr_noise: null #ke
 reset_noise: null #ke
 thres_noise: null #ke

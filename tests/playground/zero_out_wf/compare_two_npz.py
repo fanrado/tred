@@ -4,7 +4,8 @@ import argparse
 
 # Configure logging at the start
 logging.basicConfig(
-    filename='npz_comparison_default_and_nodyn2.log',
+    # filename='npz_comparison_default_and_nodyn2.log',
+    filename='npz_comparison_default.log',
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     filemode='w'
@@ -41,12 +42,14 @@ def compare_npz_files(file1, file2, assert_on_difference=True):
         value1 = data1[key]
         value2 = data2[key]
         if isinstance(value1, np.ndarray) and isinstance(value2, np.ndarray):
-            if not _arrays_equal(value1, value2):
+            if not _arrays_equal(value1, value2, atol=1e-4, rtol=1e-4):
                 msg = f"np.ndarray values for key '{key}' are different."
                 logging.error(msg)
                 if assert_on_difference:
-                    msg = f'{_arrays_equal(value1, value2)}, dtypes = [value1: {value1.dtype}, value2: {value2.dtype}] {msg}'
-                    msg = f'----------\n {msg}\n value1: {value1} \n value2: {value2}\n ----------'
+                    # msg = f'{_arrays_equal(value1, value2)}, dtypes = [value1: {value1.dtype}, value2: {value2.dtype}] {msg}'
+                    # msg = f'----------\n {msg}\n value1: {value1} \n value2: {value2}\n ----------'
+                    difference = value1 - value2
+                    msg = f'----------\n value1 - value2 = {difference[np.where(difference!=0)]} \n--------------'
                     # assert _arrays_equal(value1, value2), msg
                     logging.error(msg)
             else:

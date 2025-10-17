@@ -618,7 +618,7 @@ def eval_qeff(Q, X0, X1, Sigma, offset, shape, origin, grid_spacing, method, npo
     ##------------------ RADO START -------------------
     ## Disable dynamic chunking and batching
     # # FIXME: Not friendly to jit
-    # mem_limit = kwargs.get('mem_limit', 12*1024) # MB
+    # mem_limit = kwargs.get('mem_limit', 8*1024) # MB
 
     # # FIXME: not friendly to JIT
     # # FIXME: only support 3D

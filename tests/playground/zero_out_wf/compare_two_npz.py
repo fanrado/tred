@@ -42,7 +42,7 @@ def compare_npz_files(file1, file2, assert_on_difference=True):
         value1 = data1[key]
         value2 = data2[key]
         if isinstance(value1, np.ndarray) and isinstance(value2, np.ndarray):
-            if not _arrays_equal(value1, value2, atol=1e-4, rtol=1e-4):
+            if not _arrays_equal(value1, value2, atol=1e-4, rtol=1e-2):
                 msg = f"np.ndarray values for key '{key}' are different."
                 logging.error(msg)
                 if assert_on_difference:

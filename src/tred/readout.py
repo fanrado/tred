@@ -1,5 +1,6 @@
 import torch
 # import logging
+from tred.util import info
 
 from tred.blocking import Block
 
@@ -21,6 +22,7 @@ def nd_readout(block, threshold, adc_hold_delay, adc_down_time, csa_reset_time=1
                 counting ADC HOLD DELAY after trigger crossing.
     '''
     X = block.data
+
     locations = block.location
     if threshold.ndim > 0:
         loc_inds = locations.view(-1,block.vdim)[:,:-1].T
@@ -72,12 +74,11 @@ def nd_readout(block, threshold, adc_hold_delay, adc_down_time, csa_reset_time=1
             thres = threshold + torch.normal(0, torch.full_like(threshold, fill_value=thres_noise, device=threshold.device))
         else:
             thres = threshold
-
+        
         mvalid = trange >= start # shape (npxl, npxl, ..., Nt) if taxis = -1
         # logging.debug(f'mvalid shape {mvalid.shape}')
         # info(f'mvalid shape {mvalid.shape}')
         Xacc = Xacc * mvalid # FIXME: start > trange; we need leftover information
-
         crossed = torch.zeros_like(Xacc, dtype=torch.int32, device=Xacc.device)
         crossed[...,offset_to_align::one_tick] = (Xacc[...,offset_to_align::one_tick] >= thres) & mvalid[...,offset_to_align::one_tick] # check after start # shape (N, nxpl, ..., Nt) if taxis = -1
         # FIXME:
@@ -97,9 +98,11 @@ def nd_readout(block, threshold, adc_hold_delay, adc_down_time, csa_reset_time=1
         delay_crossed = Xacc_hold_t >= thres # shape (N, npxl, ..., 1) if taxis = -1
         # logging.debug(f'delay_crossed shape {delay_crossed.shape}')
         triggered = crossed & delay_crossed & (hold_t < Nt) # shape (N, npxl, ..., 1) if taxis = -1
+        print(f'crossed {crossed.sum()}, delay_crossed {delay_crossed.sum()}, triggered {triggered.sum()} at iteration {iteration}')
         # logging.debug(f'triggered shape {triggered.shape}')
         # if iteration % niter == 0 and not mvalid.any():
         if not triggered.any():
+            info(f'No more triggered pixels at iteration {iteration}')
             # FIXME: We need deal with leftover on the CSA.
             # FIXME: the leftover should cover at least one
             # FIXME: As the input is current, we need to return current from accumulated charge
@@ -115,6 +118,7 @@ def nd_readout(block, threshold, adc_hold_delay, adc_down_time, csa_reset_time=1
         start[triggered] = hold_t[triggered] + adc_down_time + one_tick # on discriminator, controlled by adc down time
         start_times = gtimes + start[triggered]
         oloc = torch.cat([pixels, times.unsqueeze(1), hold_times.unsqueeze(1), start_times.unsqueeze(1)], dim=1)
+
         olocs.append(oloc)
         ocharges.append(hits)
         if thres_noise is None:

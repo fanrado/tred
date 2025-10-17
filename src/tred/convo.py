@@ -348,6 +348,7 @@ def interlaced_symm_v2(signal: Block, response: Tensor, steps: IntTensor, taxis:
 
     symm_axis :: The axis (excluding batch) along which mirror symmetry is present in `response`.
     '''
+    # check any conversion of type
     # DFT shape
     c_shape = dft_shape(torch.tensor(signal.data.shape[1:]).to(steps.device)//steps, torch.tensor(response.shape).to(steps.device)//steps)
     if o_shape is None:

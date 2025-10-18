@@ -49,7 +49,7 @@ def compare_npz_files(file1, file2, assert_on_difference=True):
                     # msg = f'{_arrays_equal(value1, value2)}, dtypes = [value1: {value1.dtype}, value2: {value2.dtype}] {msg}'
                     # msg = f'----------\n {msg}\n value1: {value1} \n value2: {value2}\n ----------'
                     difference = value1 - value2
-                    msg = f'----------\n value1 - value2 = {difference[np.where(difference!=0)]} \n--------------'
+                    msg = f'----------\n max(value1 - value2) = {np.max(difference[np.where(difference!=0)])} \n--------------'
                     # assert _arrays_equal(value1, value2), msg
                     logging.error(msg)
             else:

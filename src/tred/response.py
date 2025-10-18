@@ -7,6 +7,7 @@ import numpy
 import torch
 
 from .util import to_tensor, to_tuple
+torch.float32 = torch.float64
 
 class Response:
     '''

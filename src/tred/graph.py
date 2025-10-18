@@ -35,6 +35,7 @@ from .convo import interlaced, interlaced_symm, interlaced_symm_v2
 
 import torch
 import torch.nn as nn
+torch.float32 = torch.float64
 
 def raster_steps(*args,**kwds):
     # raise NotImplementedError("Yousen, make raster.steps.function, import it as tred.graph.raster_steps and delete this temporary function")

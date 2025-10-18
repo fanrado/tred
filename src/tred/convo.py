@@ -10,6 +10,7 @@ from .blocking import Block, batchify
 from .partitioning import deinterlace, deinterlace_pairs
 import torch
 from torch.nn.functional import pad
+torch.float32 = torch.float64
 
 def dft_shape(tshape: Shape, kshape: Shape) -> Shape:
     '''

@@ -17,6 +17,7 @@ from tred.util import warning
 
 from importlib import reload  # Python 3.4+
 import tred.loaders
+torch.float32 = torch.float64
 
 def simple_geo_parser(det_yaml, tile_yaml, old_version=True):
     '''

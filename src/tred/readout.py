@@ -2,6 +2,7 @@ import torch
 # import logging
 
 from tred.blocking import Block
+torch.float32 = torch.float64 
 
 def nd_readout(block, threshold, adc_hold_delay, adc_down_time, csa_reset_time=1, one_tick=1,
                offset_to_align=0, pixel_axes=(), taxis=-1,

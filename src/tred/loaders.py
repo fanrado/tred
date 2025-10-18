@@ -28,6 +28,7 @@ try:
 except ImportError:
     h5py = None
 
+torch.float32 = torch.float64
 
 def npz_keys(path):
     return numpy.load(path).keys()

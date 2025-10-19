@@ -267,8 +267,11 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                           'nbchunk_conv': NBCHUNK_CONV,}
     
     for itpc, tpcdataset in enumerate(tpcs):
+        torch.cuda.reset_peak_memory_stats() ## This is a better practice. Resetting the memory before benchmarking
+        print('starting TPC', itpc)
         m0_start_tpc = torch.cuda.memory_allocated() / 1024**2
 
+        # reset memory stats before each operation
         info(f"Drift direction: {tpcdataset.drift} in tpcid {tpcdataset.tpc_id}.")
         info(f"TPC lower corner: {tpcdataset.lower_left_corner} in itpc {tpcdataset.tpc_id}.")
         info(f"TPC upper corner: {tpcdataset.upper_corner} in itpc {tpcdataset.tpc_id}.")
@@ -328,12 +331,12 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
         peak_memory_perbatch = {}
 
         for ibatch, (features, labels) in enumerate(loader):
-            print(f'Batch {ibatch}, event id {labels[0,0].numpy()} in itpc {itpc}')
+            torch.cuda.reset_peak_memory_stats() ## This is a better practice. Resetting the memory before benchmarking
             stime = time.time()
             try:
                 if isinstance(event_list, list) and len(event_list)>0 and int(labels[0,0].numpy()) not in event_list:
                     continue
-
+                print(f'Batch {ibatch}, event id {labels[0,0].numpy()} in itpc {itpc}')
                 global_tref = [features[0][0,-2].numpy(), torch.min(features[0][:,-1]).numpy()] # assume it is in us
                 ## Uncomment if you want to save output npz ------------------------------------------------
                 # waveforms[f'global_tref_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = np.array(global_tref)
@@ -515,7 +518,7 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                     'peak_memory_MB': torch.cuda.max_memory_allocated() / 1024**2,
                     'each_operation_MB': mem_each_operation
                 }
-                torch.cuda.reset_peak_memory_stats()
+                # torch.cuda.reset_peak_memory_stats()
                 ## Uncomment if you want to save output npz ------------------------------------------------
                 # if torch.isnan(currents.data).any():
                 #     raise ValueError
@@ -697,6 +700,7 @@ def fullsim(config, finpath, foutpath):
     lifetime = config.get("lifetime", 2.0) * units.ms / units.us # values are from ms units of us
     threshold = config.get("threshold", 5_000) # electrons # it can also be a path to threshold
     event_list = config.get("event_list", None) # None means select all
+
     save_waveform = config.get("save_waveform", False)
     uncorr_noise = config.get("uncorr_noise", None)
     thres_noise = config.get("thres_noise", None)
@@ -707,7 +711,7 @@ def fullsim(config, finpath, foutpath):
     old_geo_config = config.get("old_geo_config", True)
 
     # get all events
-    event_list = None
+    # event_list = None
     # loading response
     if os.path.splitext(response_path)[1] == '.npz':
         fres = np.load(response_path)
@@ -741,13 +745,16 @@ def fullsim(config, finpath, foutpath):
         output_path = foutpath
 
     with torch.no_grad():
-        list_batch = [256, 512, 1024, 2048, 4096]
+        list_batch = [8192]
         list_nbchunk = [10, 50, 100, 200, 300]
         list_nbchunk_conv = [10, 25, 50, 100, 150]
         # runit('cuda')
         for b in list_batch:
             for nc in list_nbchunk:
                 for ncc in list_nbchunk_conv:
+        # b = 2048
+        # nc = 100
+        # ncc = 50
                     info(f'Running with batch size {b}, nbchunk {nc}, nbchunk_conv {ncc}')
                     runit(device='cuda', BATCH=b, NBCHUNK_SIZE=nc, NBCHUNK_CONV_SIZE=ncc)
                     torch.cuda.empty_cache()

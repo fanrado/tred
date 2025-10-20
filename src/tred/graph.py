@@ -48,7 +48,14 @@ def raster_steps(*args,**kwds):
     return compute_qeff(grid_spacing=args[0], X0=args[1], X1=args[2],
                         Sigma=args[3], Q=args[4],
                         n_sigma=(kwds['nsigma'], kwds['nsigma'], kwds['nsigma']),
-                        origin=(0,0,0), method='gauss_legendre', npoints=(2,2,2))
+                        origin=(0,0,0), method='gauss_legendre', npoints=(2,2,2),
+                        # mem_limit=8*1024, # MB
+                        # xyz_limit=torch.tensor([100, 100, 100], requires_grad=False, dtype=index_dtype, device=args[4].device),
+                        # shape_limit = 1000_000
+                        mem_limit=kwds['mem_limit']*1024, # MB
+                        xyz_limit=torch.tensor([kwds['xyz_limit'], kwds['xyz_limit'], kwds['xyz_limit']], requires_grad=False, dtype=index_dtype, device=args[4].device),
+                        shape_limit = kwds['shape_limit']
+                        )
 
 def param(thing, dtype=torch.float32):
     if isinstance(thing, torch.Tensor):
@@ -279,7 +286,9 @@ class Raster(nn.Module):
 
         return point
 
-    def forward(self, sigma, time, charge, tail, head=None):
+    # def forward(self, sigma, time, charge, tail, head=None):
+    def forward(self, sigma, time, charge, tail, head=None,
+                mem_limit=8, xyz_limit=100, shape_limit=100_000):
         '''
         Raster the input depos, return block.
 
@@ -304,7 +313,9 @@ class Raster(nn.Module):
         head = self._transform(head, dt+time)
         sigma = self._transform(sigma, None)
         sigma[:, self._tdim] = sigma[:, self._tdim] / torch.abs(self.velocity) # distance to time
-        rasters, offsets = raster_steps(self.grid_spacing, tail, head, sigma, charge, nsigma=self.nsigma)
+        # rasters, offsets = raster_steps(self.grid_spacing, tail, head, sigma, charge, nsigma=self.nsigma)
+        rasters, offsets = raster_steps(self.grid_spacing, tail, head, sigma, charge, nsigma=self.nsigma,
+                                        mem_limit=mem_limit, xyz_limit=xyz_limit, shape_limit=shape_limit) # used to input the parameters for dynamic chunking and batching
 
         return Block(location = offsets, data=rasters)
 

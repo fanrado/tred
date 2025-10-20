@@ -391,7 +391,8 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                 mem_usage_chunking = {}
                 for ichunk, idrifted in enumerate(
                         iter_tensor_chunks(drifted, chunk_size=nbchunk)):
-                    qblock = raster(*idrifted)
+                    # qblock = raster(*idrifted)
+                    qblock = raster(*idrifted, mem_limit=mem_limit, shape_limit=shape_limit, xyz_limit=xyz_limit) # Include mem_limit, xyz_limit, and shape_limit HERE
                     mem_end_raster = torch.cuda.memory_allocated() / 1024**2
 
                     start = ichunk * nbchunk
@@ -515,6 +516,9 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                     'event_id': int(labels[0,0].numpy()),
                     'N_segments': len(features[0]),
                     'N_qblock': Nqblock,
+                    'mem_limit_MB': mem_limit*1024, # MB,
+                    'xyz_limit': xyz_limit,
+                    'shape_limit': shape_limit,
                     'peak_memory_MB': torch.cuda.max_memory_allocated() / 1024**2,
                     'each_operation_MB': mem_each_operation
                 }
@@ -648,7 +652,9 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
     info(f"Peak memory usage {torch.cuda.max_memory_allocated()/1024**2:.2f} MB")
     ##
     ## save peak memory usage per TPC and per batch
-    with open(f'/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/MEMORY_EVAL/peak_memory_usage_batch{BATCH_SIZE}_nbchunk{NBCHUNK}_nbchunkconv{NBCHUNK_CONV}.json', 'w') as fpm:
+    # with open(f'/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/MEMORY_EVAL/peak_memory_usage_batch{BATCH_SIZE}_nbchunk{NBCHUNK}_nbchunkconv{NBCHUNK_CONV}.json', 'w') as fpm:
+    #     json.dump(peak_memory_perTPC, fpm)
+    with open(f'/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/MEMORY_EVAL/peak_memory_usage_memLimit{mem_limit}_xyzLimit{xyz_limit}_shapeLimit{shape_limit}.json', 'w') as fpm:
         json.dump(peak_memory_perTPC, fpm)
 
 def plots(out):
@@ -688,6 +694,10 @@ def fullsim(config, finpath, foutpath):
     global output_path
 
     global response
+
+    global mem_limit
+    global xyz_limit
+    global shape_limit
 
     with open(config, "r") as fconfig:
         config = yaml.safe_load(fconfig)
@@ -734,6 +744,11 @@ def fullsim(config, finpath, foutpath):
     one_tick = config.get("one_tick", 0.1) * units.us / units.us / (tspace * units.us / units.us)
     one_tick = int(round(one_tick))
 
+    ## mem_limit, xyz_limit, shape_limit
+    mem_limit = config.get('mem_limit', 8)
+    xyz_limit = config.get('xyz_limit', 100)
+    shape_limit = config.get('shape_limit', 100_000)
+
     if finpath is None:
         input_path = "/home/yousen/Public/ndlar_shared/data/tred_2x2_2025010/filtered_MiniRun5_1E19_RHC.convert2h5.0000000.EDEPSIM.hdf5"
     else:
@@ -746,8 +761,10 @@ def fullsim(config, finpath, foutpath):
 
     with torch.no_grad():
         list_batch = [8192]
-        list_nbchunk = [10, 50, 100, 200, 300]
-        list_nbchunk_conv = [10, 25, 50, 100, 150]
+        # list_nbchunk = [10, 50, 100, 200, 300]
+        # list_nbchunk_conv = [10, 25, 50, 100, 150]
+        list_nbchunk = [100]
+        list_nbchunk_conv = [100]
         # runit('cuda')
         for b in list_batch:
             for nc in list_nbchunk:

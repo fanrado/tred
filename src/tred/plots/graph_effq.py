@@ -316,6 +316,7 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
         inds_range = (tpcdataset.upper_corner - tpcdataset.lower_left_corner) // pitch
         inds_range = inds_range.to(torch.int32).to(device)
         m0_inds_range = torch.cuda.memory_allocated() / 1024**2 # this was called m0_wf_init in the older version of the code : tred_2
+        print(f'max memory allocated : {m0_inds_range} MB')
 
         peak_memory_perTPC[f'tpc{itpc}'] = {
             'start_tpc_MB': m0_start_tpc,

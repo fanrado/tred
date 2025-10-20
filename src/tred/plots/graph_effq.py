@@ -28,6 +28,9 @@ import torch
 import time
 import json
 
+# torch.float32 = torch.float64
+# change float32 to float64 globally
+
 # # set seed to 42 for reproducibility
 torch.manual_seed(42)
 torch.cuda.manual_seed_all(42)
@@ -52,10 +55,10 @@ thres_noise = None
 fluctuate = False
 effq_out_nt = 1
 
-pitch = 4.434*units.mm / units.cm # values are in units of cm
+# pitch = 4.434*units.mm / units.cm # values are in units of cm
 # nimperpix=10 ## This is the default config we are using. Subdividing a pixel into 10x10 subpixels.
-nimperpix=6
-pspace = pitch/nimperpix
+# nimperpix=6
+# pspace = pitch/nimperpix
 velocity = 1.59645 * units.mm/units.us / (units.cm/units.us) # values are in units of cm/us
 
 adc_hold_delay = None
@@ -188,14 +191,14 @@ def runit(device='cpu'):
 
     BATCH_SIZE = 2048 # 4096
     NBCHUNK = 100 # 100
-    NBCHUNK_CONV = 50 # 50
+    NBCHUNK_CONV = 100 # 50
     # eventually replace this hard-wire with configuration
     twindow_max = 12_000 # 12_000 * 50ns = 600us
+    
     DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     diffusion = torch.tensor([DL, DT, DT])
     grid_spacing = (pspace, pspace, tspace)
-    # npixpersuper = 16+1-9
     npixpersuper = 12+1-9
     # ntickperslice = 6912+1-6400
     ntickperslice = 384 # 128*3
@@ -331,7 +334,7 @@ def runit(device='cpu'):
             try:
                 if isinstance(event_list, list) and len(event_list)>0 and int(labels[0,0].numpy()) not in event_list:
                     continue
-
+                
                 global_tref = [features[0][0,-2].numpy(), torch.min(features[0][:,-1]).numpy()] # assume it is in us
                 ## Uncomment if you want to save output npz ------------------------------------------------
                 waveforms[f'global_tref_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = np.array(global_tref)
@@ -340,7 +343,7 @@ def runit(device='cpu'):
                 waveforms[f'event_start_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = features[0][0,2:5].numpy()
                 waveforms[f'event_end_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = features[0][-1,5:8].numpy()
                 ## ---------------------------------------------------------------------------------
-
+                
                 # if device == 'cuda':
                 #     torch.cuda.synchronize()
                 # t00 = time.time()
@@ -386,7 +389,8 @@ def runit(device='cpu'):
                 mem_usage_chunking = {}
                 for ichunk, idrifted in enumerate(
                         iter_tensor_chunks(drifted, chunk_size=nbchunk)):
-                    qblock = raster(*idrifted)
+                    # qblock = raster(*idrifted)
+                    qblock = raster(*idrifted, npoints=NPOINTS) # include the number of nodes for the quadrature rule
                     # mem_end_raster = torch.cuda.memory_allocated() / 1024**2
 
                     start = ichunk * nbchunk
@@ -473,7 +477,7 @@ def runit(device='cpu'):
                 if device == 'cuda':
                     torch.cuda.synchronize()
                 t07 = time.time()
-
+                
                 if currents is None:
                     info(f'itpc{itpc}, tpc label {tpcdataset.tpc_id}, batch label {ibatch}, '
                          f'N segments {len(features[0])}, '
@@ -486,11 +490,10 @@ def runit(device='cpu'):
 
                 currents = chunksum_readout(currents)
                 # mem_readout_chunksum = torch.cuda.memory_allocated() / 1024**2
-
                 currents = concatenate_waveforms(currents, twindow_max, event_t=global_tref[1]//tspace)
                 # mem_readout_concat = torch.cuda.memory_allocated() / 1024**2
 
-                currents.data = currents.data * tspace / 1E3 # to ke-
+                currents.data = currents.data * tspace / 1E3 # to ke- 
                 current_mask = (currents.location[:,[0,1]] <= inds_range) & (currents.location[:,[0,1]] >= 0)
                 current_mask = current_mask.all(dim=1)
                 currents = Block(data=currents.data[current_mask], location=currents.location[current_mask])
@@ -527,7 +530,7 @@ def runit(device='cpu'):
                 hits = nd_readout(currents, thres, adc_hold_delay, adc_down_time, csa_reset_time, one_tick=one_tick,
                                   offset_to_align=0, # FIXME: how to calculate properly?
                                   pixel_axes=(1,2), uncorr_noise=uncorr_noise, thres_noise=thres_noise, reset_noise=reset_noise)
-
+                
                 # runtime['to_device'].append(t01-t00)
                 # runtime['recomb'].append(t02-t01)
                 # runtime['drift'].append(t03-t02)
@@ -580,7 +583,7 @@ def runit(device='cpu'):
                 hitlf32 = hitlf32[:, [2,0,1]]
                 hitd = torch.cat([hitlf32, hits[1][:,None].cpu()], dim=1)
 
-                waveforms[f'hits_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = hitd.numpy()
+                waveforms[f'hits_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = hitd.numpy() # check the type
                 waveforms[f'hits_tpc{tpcdataset.tpc_id}_batch{ibatch}_location'] = hitl.numpy()
                 waveforms[f'effq_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = qbd
                 waveforms[f'effq_tpc{tpcdataset.tpc_id}_batch{ibatch}_location'] = qbl
@@ -686,6 +689,13 @@ def fullsim(config, finpath, foutpath):
 
     global response
 
+    ##------ RADO
+    global nimperpix
+    global nd_response_shape
+    global pitch
+    global pspace
+    global NPOINTS
+    ## ----------------
     with open(config, "r") as fconfig:
         config = yaml.safe_load(fconfig)
 
@@ -705,13 +715,22 @@ def fullsim(config, finpath, foutpath):
     const_recomb = config.get("const_recomb", False)
     effq_out_nt = config.get("effq_out_nt", 1)
     old_geo_config = config.get("old_geo_config", True)
+    ## --- RADO ----
+    nimperpix = config.get('nimperpix', 10)
+    nd_response_shape = config.get('nd_response_shape', list([45, 45,]))
 
+    pitch = 4.434*units.mm / units.cm # values are in units of cm
+    # nimperpix=6
+    pspace = pitch/nimperpix
+    NPOINTS = config.get('npoints', (2,2,2))
+    NPOINTS = tuple(NPOINTS)
+    # ----------
     # get all events
     # event_list = None
     # loading response
     if os.path.splitext(response_path)[1] == '.npz':
         fres = np.load(response_path)
-        response = ndlarsim(fres['response'])
+        response = ndlarsim(fres['response'], nd_nimp=nimperpix, nd_response_shape=nd_response_shape)
         tspace = fres['time_tick']  * units.us / units.us # us
         drtoa = fres['drift_length'] * units.cm / units.cm # cm
         bin_size = fres["bin_size"] * units.cm / units.cm # cm
@@ -719,7 +738,7 @@ def fullsim(config, finpath, foutpath):
         if abs(bin_size - pspace) > 1E-4:
             warning(f'Please manually check pspace. pspace in response file is {fres["bin_size"]} cm. pspace in config.')
     else:
-        response = ndlarsim(response_path)
+        response = ndlarsim(response_path, nd_nimp=nimperpix, nd_response_shape=nd_response_shape)
 
     adc_hold_delay = config.get("adc_hold_delay", 1.5) * units.us / units.us / (tspace * units.us / units.us)
     adc_hold_delay = int(round(adc_hold_delay))

@@ -48,7 +48,8 @@ def raster_steps(*args,**kwds):
     return compute_qeff(grid_spacing=args[0], X0=args[1], X1=args[2],
                         Sigma=args[3], Q=args[4],
                         n_sigma=(kwds['nsigma'], kwds['nsigma'], kwds['nsigma']),
-                        origin=(0,0,0), method='gauss_legendre', npoints=(2,2,2))
+                        # origin=(0,0,0), method='gauss_legendre', npoints=(2,2,2))
+                        origin=(0,0,0), method='gauss_legendre', npoints=kwds['npoints'])
 
 def param(thing, dtype=torch.float32):
     if isinstance(thing, torch.Tensor):
@@ -279,7 +280,7 @@ class Raster(nn.Module):
 
         return point
 
-    def forward(self, sigma, time, charge, tail, head=None):
+    def forward(self, sigma, time, charge, tail, head=None, npoints=(2,2,2)):
         '''
         Raster the input depos, return block.
 
@@ -304,7 +305,7 @@ class Raster(nn.Module):
         head = self._transform(head, dt+time)
         sigma = self._transform(sigma, None)
         sigma[:, self._tdim] = sigma[:, self._tdim] / torch.abs(self.velocity) # distance to time
-        rasters, offsets = raster_steps(self.grid_spacing, tail, head, sigma, charge, nsigma=self.nsigma)
+        rasters, offsets = raster_steps(self.grid_spacing, tail, head, sigma, charge, nsigma=self.nsigma, npoints=npoints)
 
         return Block(location = offsets, data=rasters)
 

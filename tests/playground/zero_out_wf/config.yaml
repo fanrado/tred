@@ -14,5 +14,5 @@ save_waveform: false
 fluctuate: false
 eff_q_out: 20
 mem_limit: 16 # GB
-xyz_limit: 100_000 # default 100
+xyz_limit: 100_000_000 # default 100
 shape_limit: 100_000 # default 100_000

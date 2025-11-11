@@ -27,6 +27,7 @@ import os
 import torch
 import time
 import json
+import mplhep as hep
 
 # torch.float32 = torch.float64
 # change float32 to float64 globally
@@ -157,6 +158,7 @@ def make_nd(device='cpu'):
     borders = simple_geo_parser(module_yaml, tile_yaml, old_geo_config)
     d0 = StepLoader(h5py.File(input_path), transform=steps_from_ndh5)
     f0, f1, i0 = d0[:]
+    # print('f0 ', f0, 'f1 ', f1, 'i0 ', i0)
     return (f0, f1, i0), i0, borders
 
 
@@ -189,7 +191,8 @@ def runit(device='cpu'):
     '''
     export_pickle = False
 
-    BATCH_SIZE = 2048 # 4096
+    # BATCH_SIZE = 2048 # 4096
+    BATCH_SIZE = 4096 # select one segement at a time
     NBCHUNK = 100 # 100
     NBCHUNK_CONV = 100 # 50
     # eventually replace this hard-wire with configuration
@@ -197,6 +200,7 @@ def runit(device='cpu'):
     
     DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    # DT = 10*8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     diffusion = torch.tensor([DL, DT, DT])
     grid_spacing = (pspace, pspace, tspace)
     npixpersuper = 12+1-9
@@ -260,16 +264,19 @@ def runit(device='cpu'):
         # max_entries=MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT
         )
 
-
     thresholds = load_threshold(threshold)
 
     # peak_memory_perTPC = {'batch_size': BATCH_SIZE,
     #                       'nbchunk': NBCHUNK,
     #                       'nbchunk_conv': NBCHUNK_CONV,}
-    
+    print('before TPC')
+
+    drift_time = np.array([], dtype=np.float32)
+    diffusion_Long_spread = np.array([], dtype=np.float32)
+    diffusion_Transv_spread_x = np.array([], dtype=np.float32)
+    diffusion_Transv_spread_y = np.array([], dtype=np.float32)
     for itpc, tpcdataset in enumerate(tpcs):
         # m0_start_tpc = torch.cuda.memory_allocated() / 1024**2
-
         info(f"Drift direction: {tpcdataset.drift} in tpcid {tpcdataset.tpc_id}.")
         info(f"TPC lower corner: {tpcdataset.lower_left_corner} in itpc {tpcdataset.tpc_id}.")
         info(f"TPC upper corner: {tpcdataset.upper_corner} in itpc {tpcdataset.tpc_id}.")
@@ -336,6 +343,10 @@ def runit(device='cpu'):
                     continue
                 
                 global_tref = [features[0][0,-2].numpy(), torch.min(features[0][:,-1]).numpy()] # assume it is in us
+                # print(f'global_tref : {global_tref[0].shape}')
+                # print(features[0][0].shape, features[0][0, -2], features[0][0][-2])
+                # print(features[0][:, -1])
+                # sys.exit()
                 ## Uncomment if you want to save output npz ------------------------------------------------
                 waveforms[f'global_tref_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = np.array(global_tref)
                 waveforms[f'event_id_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = labels[0,0].numpy()
@@ -368,11 +379,32 @@ def runit(device='cpu'):
                 head = features[0][:,5:8]
                 tail[:,[1,2]] -= tpc_lower_left
                 head[:,[1,2]] -= tpc_lower_left
-
+                
+                # print(f'features[0] shape: {features[0].shape}, tail : {tail.shape}, head : {head.shape}, local_time : {local_time.shape}, charge : {charge.shape}')
+                # print(f'features[0][0] shape : {features[0][0].shape}')
+                # print(f'global time : {features[0][0,-2]}, local time : {features[0][0,-1]}')
+                # sys.exit()
+                ### apply a cut on the time offset
+                # mask = local_time >= 5 #>= 5# <= 3
+                # local_time = local_time[mask]
+                # tail = tail[mask]
+                # head = head[mask]
+                # charge = charge[mask]
                 # dsigma, dtime, dcharge, dtail, dhead
                 drifted = drifter(local_time, charge, tail, head)
+                tdrift = drifted[1] + torch.abs(drtoa / (tpcdataset.drift*velocity)) - local_time
+                # print(f'tdrift : {tdrift} us, Negative tdrift : {(tdrift<0).sum().item()} out of {tdrift.shape[0]} points.')  # DEBUG
+                if (len(drift_time) == 0):
+                    drift_time = tdrift.cpu().numpy()
+                else:
+                    drift_time = np.concatenate((drift_time, tdrift.cpu().numpy()), axis=0)
+                # continue
+                # print(f'Drift time : {tdrift} us, Negative drift time : {(tdrift<0).sum().item()} out of {tdrift.shape[0]} points.')  # DEBUG
+                # continue
                 # m1_drifter = torch.cuda.memory_allocated() / 1024**2
-
+                # print(f'local time : {local_time}')
+                # print(f'drift time : {drifted[1]}')
+                # sys.exit()
                 # dsigma, dtime, dcharge, dtail, dhead = drifter(local_time, charge, tail, head)
                 ## Uncomment if you need runtime -------------------------------------------------
                 if device == 'cuda':
@@ -387,9 +419,35 @@ def runit(device='cpu'):
                 Nqblock = 0
                 
                 mem_usage_chunking = {}
+
                 for ichunk, idrifted in enumerate(
                         iter_tensor_chunks(drifted, chunk_size=nbchunk)):
+                    # if len(drift_time) == 0:
+                    #     drift_time = idrifted[1].cpu().numpy()
+                    #     continue
+                    # else:
+                    #     drift_time = np.concatenate((drift_time, idrifted[1].cpu().numpy()), axis=0)
+                    #     continue
+
                     # qblock = raster(*idrifted)
+                    # mask_early = idrifted[1] < 30 ## cut on drift time > 100 us 
+                    # idrifted = tuple([x[mask_early] for x in idrifted])
+                    # mask_neg_tdrift = idrifted[1] < 0
+                    # idrifted = tuple([x[mask_neg_tdrift] for x in idrifted])
+
+                    if len(diffusion_Long_spread) == 0:
+                        # drift_time = idrifted[1].cpu().numpy()
+                        diffusion_Long_spread = idrifted[0][:, 0].cpu().numpy()
+                        diffusion_Transv_spread_x = idrifted[0][:, 1].cpu().numpy()
+                        diffusion_Transv_spread_y = idrifted[0][:, 2].cpu().numpy()
+                        continue
+                    else:
+                        # drift_time = np.concatenate((drift_time, idrifted[1].cpu().numpy()), axis=0)
+                        diffusion_Long_spread = np.concatenate((diffusion_Long_spread, idrifted[0][:, 0].cpu().numpy()), axis=0)
+                        diffusion_Transv_spread_x = np.concatenate((diffusion_Transv_spread_x, idrifted[0][:, 1].cpu().numpy()), axis=0)
+                        diffusion_Transv_spread_y = np.concatenate((diffusion_Transv_spread_y, idrifted[0][:, 2].cpu().numpy()), axis=0)
+                        continue
+
                     qblock = raster(*idrifted, npoints=NPOINTS) # include the number of nodes for the quadrature rule
                     # mem_end_raster = torch.cuda.memory_allocated() / 1024**2
 
@@ -399,11 +457,11 @@ def runit(device='cpu'):
                     p1 = head[start:end]
                     length2 = torch.sum((p0-p1)**2, dim=1)
                     invalid2 = length2 < 1E-9
+
                     qblock.data[invalid2] = 0
 
                     signal = chunksum(qblock)
                     # mem_chunksum_qblock = torch.cuda.memory_allocated() / 1024**2
-
                     ## Uncomment if you want to save output npz ------------------------------------------------
                     effqb = chunksum_effq_out(qblock)
                     effqb.location[:, 0:2] //= nimperpix
@@ -456,9 +514,11 @@ def runit(device='cpu'):
                     # if device == 'cuda':
                     #     torch.cuda.synchronize()
                     # t05 = time.time()
+                continue ## just skip
 
                 ## Uncomment if you want to save output npz ------------------------------------------------
                 effq_blocks = concat_blocks(effq_blocks, device='cpu')
+                print(f'SHAPE of effq blocks after concat: {effq_blocks.data.shape}')
                 ## ---------------------------------------------------------------------------------
 
                 # no need to chunk again; just sum
@@ -498,7 +558,6 @@ def runit(device='cpu'):
                 current_mask = current_mask.all(dim=1)
                 currents = Block(data=currents.data[current_mask], location=currents.location[current_mask])
                 # mem_readout_current = torch.cuda.memory_allocated() / 1024**2
-
                 # mem_each_operation = {
                 #     'recomb_MB': mem_recomb,
                 #     'drifter_MB': m1_drifter,
@@ -568,11 +627,17 @@ def runit(device='cpu'):
                 qblf32 = transform_indices_to_coord_3d(qbl, pitch, tspace, velocity,
                                                        tpc_lower_left.to(torch.float32), tpcdataset.anode, tpcdataset.drift,
                                                        paxes=(0,1), taxis=-1, offset=qoff)
+                # print(f'qblf32 sample: {qblf32[0]}')
                 qblf32 = qblf32[:, [2,0,1]]
+                # print(f'qblf32 reordered (coord): {qblf32[0]}')
                 qbd_fg = effq_blocks.data / 1E3 # to ke-
+                # print(f'shape of qbg fg : {qbd_fg.shape}')
                 qbd = qbd_fg.sum(dim=(1,2,3))
+                # print(f'qbd [0] : {qbd[0]}')
+                # print(f'shape of qbd coarse : {qbd.shape}')
                 qbd = torch.cat([qblf32, qbd[:,None]], dim=1)
-
+                # print(f'shape of qbg coarse with loc : {qbd.shape}')
+                # print(f'qbd coarse with loc sample: {qbd[0]}')
                 hitl = hits[0].cpu()
                 # FIXME: :,:3 is hard-coded
                 hoff = torch.tensor([1/2, 1/2, adc_hold_delay-global_tref[1]//tspace]).to(torch.float32)
@@ -586,6 +651,12 @@ def runit(device='cpu'):
                 waveforms[f'hits_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = hitd.numpy() # check the type
                 waveforms[f'hits_tpc{tpcdataset.tpc_id}_batch{ibatch}_location'] = hitl.numpy()
                 waveforms[f'effq_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = qbd
+                print('----------------------------------------------------------------')
+                print(f'effq_tpc{tpcdataset.tpc_id}_batch{ibatch} shape : {qbd.shape}')
+                print(f'effq_tpc{tpcdataset.tpc_id}_batch{ibatch} sample : {qbd[0]}')
+                print(f'effq_tpc{tpcdataset.tpc_id}_batch{ibatch}_location shape : {qbl.shape}')
+                print(f'effq_tpc{tpcdataset.tpc_id}_batch{ibatch}_location sample : {qbl[0]}')
+                print('----------------------------------------------------------------')
                 waveforms[f'effq_tpc{tpcdataset.tpc_id}_batch{ibatch}_location'] = qbl
                 waveforms[f'effq_fine_grain_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = qbd_fg
                 waveforms[f'effq_fine_grain_tpc{tpcdataset.tpc_id}_batch{ibatch}_location'] = qbl
@@ -599,7 +670,65 @@ def runit(device='cpu'):
                 info(f'Failed to process the batch {ibatch}')
                 info(e)
         # peak_memory_perTPC[f'tpc{itpc}']['peak_memory_perbatch'] = peak_memory_perbatch
-
+    import matplotlib.pyplot as plt
+    hep.style.use("CMS") 
+    ## Distribution of the drift time
+    plt.figure()
+    plt.hist(drift_time, bins=100, histtype='step', linewidth=2)
+    # plt.yscale('log')
+    plt.xlabel('Drift time (us)')
+    plt.ylabel('Counts')
+    plt.title('Drift time distribution')
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_drift_time_distribution.png')
+    plt.close()
+    ## Distribution of the diffusion spread
+    plt.figure()
+    plt.hist(diffusion_Long_spread, histtype='step', bins=100, label='Longitudinal spread', linewidth=2)
+    plt.hist(diffusion_Transv_spread_x, histtype='step', bins=100, label='Transverse spread', alpha=0.7, linewidth=2)
+    plt.xlabel('Diffusion spread (cm)')
+    plt.ylabel('Counts')
+    plt.title('Diffusion spread distribution')
+    plt.grid(True)
+    plt.legend(loc='upper right')
+    plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_diffusion_spread_distribution.png')
+    plt.close()
+    ## 2d correlation plot of the drift time vs diffusion spread
+    ## longitudinal vs transverse spreads
+    plt.figure()
+    plt.hist2d(diffusion_Long_spread, diffusion_Transv_spread_x, bins=100, cmap='viridis', norm=plt.matplotlib.colors.LogNorm())
+    plt.colorbar(label='Counts')
+    plt.xlabel('Longitudinal spread (cm)')
+    plt.ylabel('Transverse spread (cm)')
+    plt.title('2D Correlation: \nLongitudinal vs Transverse Diffusion Spread')
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_2d_correlation_longitudinal_vs_transverse_diffusion_spread.png')
+    plt.close()
+    ## t_drift vs longitudinal spread
+    plt.figure()
+    plt.hist2d(drift_time, diffusion_Long_spread, bins=100, cmap='viridis', norm=plt.matplotlib.colors.LogNorm())
+    plt.colorbar(label='Counts')
+    plt.xlabel('Drift time (us)')
+    plt.ylabel('Longitudinal spread (cm)')
+    plt.title('2D Correlation: \nDrift Time vs Longitudinal Diffusion Spread')
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_2d_correlation_drift_time_vs_longitudinal_diffusion_spread.png')
+    plt.close()
+    ## t_drift vs transverse spread
+    plt.figure()
+    plt.hist2d(drift_time, diffusion_Transv_spread_x, bins=100, cmap='viridis', norm=plt.matplotlib.colors.LogNorm())
+    plt.colorbar(label='Counts')
+    plt.xlabel('Drift time (us)')
+    plt.ylabel('Transverse spread (cm)')
+    plt.title('2D Correlation: \nDrift Time vs Transverse Diffusion Spread')
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_2d_correlation_drift_time_vs_transverse_diffusion_spread.png')
+    plt.close()
+    sys.exit()
     # Stop recording memory snapshot history.
     ## Uncomment if you want to save the output -------------
     waveforms["tile_yaml"] = tile_yaml

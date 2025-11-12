@@ -271,10 +271,10 @@ def runit(device='cpu'):
     #                       'nbchunk_conv': NBCHUNK_CONV,}
     print('before TPC')
 
-    drift_time = np.array([], dtype=np.float32)
-    diffusion_Long_spread = np.array([], dtype=np.float32)
-    diffusion_Transv_spread_x = np.array([], dtype=np.float32)
-    diffusion_Transv_spread_y = np.array([], dtype=np.float32)
+    # drift_time = np.array([], dtype=np.float32)
+    # diffusion_Long_spread = np.array([], dtype=np.float32)
+    # diffusion_Transv_spread_x = np.array([], dtype=np.float32)
+    # diffusion_Transv_spread_y = np.array([], dtype=np.float32)
     for itpc, tpcdataset in enumerate(tpcs):
         # m0_start_tpc = torch.cuda.memory_allocated() / 1024**2
         info(f"Drift direction: {tpcdataset.drift} in tpcid {tpcdataset.tpc_id}.")
@@ -393,18 +393,25 @@ def runit(device='cpu'):
                 # dsigma, dtime, dcharge, dtail, dhead
                 drifted = drifter(local_time, charge, tail, head)
                 tdrift = drifted[1] + torch.abs(drtoa / (tpcdataset.drift*velocity)) - local_time
-                # print(f'tdrift : {tdrift} us, Negative tdrift : {(tdrift<0).sum().item()} out of {tdrift.shape[0]} points.')  # DEBUG
-                if (len(drift_time) == 0):
-                    drift_time = tdrift.cpu().numpy()
-                else:
-                    drift_time = np.concatenate((drift_time, tdrift.cpu().numpy()), axis=0)
-                # continue
-                # print(f'Drift time : {tdrift} us, Negative drift time : {(tdrift<0).sum().item()} out of {tdrift.shape[0]} points.')  # DEBUG
-                # continue
-                # m1_drifter = torch.cuda.memory_allocated() / 1024**2
-                # print(f'local time : {local_time}')
-                # print(f'drift time : {drifted[1]}')
-                # sys.exit()
+                # print(f'type(drifted) : {type(drifted)}, dirfted : {drifted}')
+                ##================================ Apply cut on drift time ==================================
+                ## Cut on trdift 60 us
+                mask_tdrif = tdrift >= 20
+                drifted = tuple([x[mask_tdrif] for x in drifted])
+                ##==========================================================================================
+                # if len(diffusion_Long_spread) == 0:
+                #     drift_time = tdrift[mask_tdrif].cpu().numpy()
+                #     diffusion_Long_spread = drifted[0][:, 0].cpu().numpy()
+                #     diffusion_Transv_spread_x = drifted[0][:, 1].cpu().numpy()
+                #     diffusion_Transv_spread_y = drifted[0][:, 2].cpu().numpy()
+                #     continue
+                # else:
+                #     drift_time = np.concatenate((drift_time, tdrift[mask_tdrif].cpu().numpy()), axis=0)
+                #     diffusion_Long_spread = np.concatenate((diffusion_Long_spread, drifted[0][:, 0].cpu().numpy()), axis=0)
+                #     diffusion_Transv_spread_x = np.concatenate((diffusion_Transv_spread_x, drifted[0][:, 1].cpu().numpy()), axis=0)
+                #     diffusion_Transv_spread_y = np.concatenate((diffusion_Transv_spread_y, drifted[0][:, 2].cpu().numpy()), axis=0)
+                #     continue
+
                 # dsigma, dtime, dcharge, dtail, dhead = drifter(local_time, charge, tail, head)
                 ## Uncomment if you need runtime -------------------------------------------------
                 if device == 'cuda':
@@ -434,19 +441,6 @@ def runit(device='cpu'):
                     # idrifted = tuple([x[mask_early] for x in idrifted])
                     # mask_neg_tdrift = idrifted[1] < 0
                     # idrifted = tuple([x[mask_neg_tdrift] for x in idrifted])
-
-                    if len(diffusion_Long_spread) == 0:
-                        # drift_time = idrifted[1].cpu().numpy()
-                        diffusion_Long_spread = idrifted[0][:, 0].cpu().numpy()
-                        diffusion_Transv_spread_x = idrifted[0][:, 1].cpu().numpy()
-                        diffusion_Transv_spread_y = idrifted[0][:, 2].cpu().numpy()
-                        continue
-                    else:
-                        # drift_time = np.concatenate((drift_time, idrifted[1].cpu().numpy()), axis=0)
-                        diffusion_Long_spread = np.concatenate((diffusion_Long_spread, idrifted[0][:, 0].cpu().numpy()), axis=0)
-                        diffusion_Transv_spread_x = np.concatenate((diffusion_Transv_spread_x, idrifted[0][:, 1].cpu().numpy()), axis=0)
-                        diffusion_Transv_spread_y = np.concatenate((diffusion_Transv_spread_y, idrifted[0][:, 2].cpu().numpy()), axis=0)
-                        continue
 
                     qblock = raster(*idrifted, npoints=NPOINTS) # include the number of nodes for the quadrature rule
                     # mem_end_raster = torch.cuda.memory_allocated() / 1024**2
@@ -514,7 +508,7 @@ def runit(device='cpu'):
                     # if device == 'cuda':
                     #     torch.cuda.synchronize()
                     # t05 = time.time()
-                continue ## just skip
+                # continue ## just skip
 
                 ## Uncomment if you want to save output npz ------------------------------------------------
                 effq_blocks = concat_blocks(effq_blocks, device='cpu')
@@ -670,65 +664,65 @@ def runit(device='cpu'):
                 info(f'Failed to process the batch {ibatch}')
                 info(e)
         # peak_memory_perTPC[f'tpc{itpc}']['peak_memory_perbatch'] = peak_memory_perbatch
-    import matplotlib.pyplot as plt
-    hep.style.use("CMS") 
-    ## Distribution of the drift time
-    plt.figure()
-    plt.hist(drift_time, bins=100, histtype='step', linewidth=2)
-    # plt.yscale('log')
-    plt.xlabel('Drift time (us)')
-    plt.ylabel('Counts')
-    plt.title('Drift time distribution')
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_drift_time_distribution.png')
-    plt.close()
-    ## Distribution of the diffusion spread
-    plt.figure()
-    plt.hist(diffusion_Long_spread, histtype='step', bins=100, label='Longitudinal spread', linewidth=2)
-    plt.hist(diffusion_Transv_spread_x, histtype='step', bins=100, label='Transverse spread', alpha=0.7, linewidth=2)
-    plt.xlabel('Diffusion spread (cm)')
-    plt.ylabel('Counts')
-    plt.title('Diffusion spread distribution')
-    plt.grid(True)
-    plt.legend(loc='upper right')
-    plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_diffusion_spread_distribution.png')
-    plt.close()
-    ## 2d correlation plot of the drift time vs diffusion spread
-    ## longitudinal vs transverse spreads
-    plt.figure()
-    plt.hist2d(diffusion_Long_spread, diffusion_Transv_spread_x, bins=100, cmap='viridis', norm=plt.matplotlib.colors.LogNorm())
-    plt.colorbar(label='Counts')
-    plt.xlabel('Longitudinal spread (cm)')
-    plt.ylabel('Transverse spread (cm)')
-    plt.title('2D Correlation: \nLongitudinal vs Transverse Diffusion Spread')
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_2d_correlation_longitudinal_vs_transverse_diffusion_spread.png')
-    plt.close()
-    ## t_drift vs longitudinal spread
-    plt.figure()
-    plt.hist2d(drift_time, diffusion_Long_spread, bins=100, cmap='viridis', norm=plt.matplotlib.colors.LogNorm())
-    plt.colorbar(label='Counts')
-    plt.xlabel('Drift time (us)')
-    plt.ylabel('Longitudinal spread (cm)')
-    plt.title('2D Correlation: \nDrift Time vs Longitudinal Diffusion Spread')
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_2d_correlation_drift_time_vs_longitudinal_diffusion_spread.png')
-    plt.close()
-    ## t_drift vs transverse spread
-    plt.figure()
-    plt.hist2d(drift_time, diffusion_Transv_spread_x, bins=100, cmap='viridis', norm=plt.matplotlib.colors.LogNorm())
-    plt.colorbar(label='Counts')
-    plt.xlabel('Drift time (us)')
-    plt.ylabel('Transverse spread (cm)')
-    plt.title('2D Correlation: \nDrift Time vs Transverse Diffusion Spread')
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_2d_correlation_drift_time_vs_transverse_diffusion_spread.png')
-    plt.close()
-    sys.exit()
+    # import matplotlib.pyplot as plt
+    # hep.style.use("CMS") 
+    # ## Distribution of the drift time
+    # plt.figure()
+    # plt.hist(drift_time, bins=100, histtype='step', linewidth=2)
+    # # plt.yscale('log')
+    # plt.xlabel('Drift time (us)')
+    # plt.ylabel('Counts')
+    # plt.title('Drift time distribution')
+    # plt.grid(True)
+    # plt.tight_layout()
+    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_drift_time_distribution.png')
+    # plt.close()
+    # ## Distribution of the diffusion spread
+    # plt.figure()
+    # plt.hist(diffusion_Long_spread, histtype='step', bins=100, label='Longitudinal spread', linewidth=2)
+    # plt.hist(diffusion_Transv_spread_x, histtype='step', bins=100, label='Transverse spread', alpha=0.7, linewidth=2)
+    # plt.xlabel('Diffusion spread (cm)')
+    # plt.ylabel('Counts')
+    # plt.title('Diffusion spread distribution')
+    # plt.grid(True)
+    # plt.legend(loc='upper right')
+    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_diffusion_spread_distribution.png')
+    # plt.close()
+    # ## 2d correlation plot of the drift time vs diffusion spread
+    # ## longitudinal vs transverse spreads
+    # plt.figure()
+    # plt.hist2d(diffusion_Long_spread, diffusion_Transv_spread_x, bins=100, cmap='viridis', norm=plt.matplotlib.colors.LogNorm())
+    # plt.colorbar(label='Counts')
+    # plt.xlabel('Longitudinal spread (cm)')
+    # plt.ylabel('Transverse spread (cm)')
+    # plt.title('2D Correlation: \nLongitudinal vs Transverse Diffusion Spread')
+    # plt.grid(True)
+    # plt.tight_layout()
+    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_2d_correlation_longitudinal_vs_transverse_diffusion_spread.png')
+    # plt.close()
+    # ## t_drift vs longitudinal spread
+    # plt.figure()
+    # plt.hist2d(drift_time, diffusion_Long_spread, bins=100, cmap='viridis', norm=plt.matplotlib.colors.LogNorm())
+    # plt.colorbar(label='Counts')
+    # plt.xlabel('Drift time (us)')
+    # plt.ylabel('Longitudinal spread (cm)')
+    # plt.title('2D Correlation: \nDrift Time vs Longitudinal Diffusion Spread')
+    # plt.grid(True)
+    # plt.tight_layout()
+    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_2d_correlation_drift_time_vs_longitudinal_diffusion_spread.png')
+    # plt.close()
+    # ## t_drift vs transverse spread
+    # plt.figure()
+    # plt.hist2d(drift_time, diffusion_Transv_spread_x, bins=100, cmap='viridis', norm=plt.matplotlib.colors.LogNorm())
+    # plt.colorbar(label='Counts')
+    # plt.xlabel('Drift time (us)')
+    # plt.ylabel('Transverse spread (cm)')
+    # plt.title('2D Correlation: \nDrift Time vs Transverse Diffusion Spread')
+    # plt.grid(True)
+    # plt.tight_layout()
+    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_2d_correlation_drift_time_vs_transverse_diffusion_spread.png')
+    # plt.close()
+    # sys.exit()
     # Stop recording memory snapshot history.
     ## Uncomment if you want to save the output -------------
     waveforms["tile_yaml"] = tile_yaml

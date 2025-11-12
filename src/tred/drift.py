@@ -44,7 +44,6 @@ def diffuse(dt, diffusion, sigma=None):
     zero.
     '''
     squeeze = False
-
     # eg, diffusion is 5; it cannot be a list/tuple
     if not isinstance(diffusion, torch.Tensor):
         diffusion = torch.tensor([diffusion], device=dt.device)
@@ -77,6 +76,15 @@ def diffuse(dt, diffusion, sigma=None):
     sigma[torch.isnan(sigma)] = 0
     if squeeze:
         sigma = torch.squeeze(sigma)
+    
+    ## TEST minimum transverse diffusion
+    # import sys
+    # print(f'diffuse sigma : {sigma}, \t shape {sigma.shape}')
+    # sigma[:, 1] = torch.max(sigma[:, 1], torch.tensor(0.035, device=sigma.device))  # set a minimum transverse diffusion of 0.035 cm
+    # sigma[:, 2] = torch.max(sigma[:, 2], torch.tensor(0.035, device=sigma.device))  # set a minimum transverse diffusion of 0.035 cm
+    # print(f'after setting min transverse diffusion, sigma : {sigma}, \t shape {sigma.shape}')
+    # sys.exit()
+    ## -- end TEST
     return sigma
 
 def absorb(charge, dt, lifetime, fluctuate=False):
@@ -115,7 +123,7 @@ def drift(locs, velocity, diffusion, lifetime, target=0,
     - locs :: 1D (npts, ) or 2D (npts, vdim) tensor of the updated locs. The original locs is kept except along vaxis.
               locs along vaxis is updated to target.
     - times :: tensor with the same shape as locs's. It is
-               initial time (the argument times) + dt (from transport) - tshift (given
+               initial time (the argument times) + dt (from transport) - tshift (given #### <<== INITIAL TIME (argument times)
                or from abs(drtoa/velocity), drtoa = abs(loc_anode - loc_respone)).
     - sigma :: real 1D (npts,) or 2D (npts, vdim) tensors by adding the initial sigma and diffusion width in quadrature.
     - charges :: quenched charges by function absorb.
@@ -182,6 +190,9 @@ def drift(locs, velocity, diffusion, lifetime, target=0,
         tshift = drtoa / velocity
     if tshift is not None:
         tshift = tshift if isinstance(tshift, torch.Tensor) else to_tensor(tshift, dtype=torch.float32, device=times.device)
+    # print(f'tshift : {tshift} us, drtoa : {drtoa} cm, velocity : {velocity} cm/us')  # DEBUG
+    # print(f'Negative tshift : {(tshift<0).sum().item()} out of {tshift.shape[0]} points.')  # DEBUG
+    # print(f'Negative dt : {(dt<0).sum().item()} out of {dt.shape[0]} points.')  # DEBUG
     if tshift is not None:
         times = times - torch.abs(tshift)
 

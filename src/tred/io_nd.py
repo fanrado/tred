@@ -288,7 +288,7 @@ def create_tpc_datasets_from_steps(features, labels, borders, **kwargs):
     anodes, cathodes, drift_dir, lower_left_corners, upper_corners = tpc_drift_direction(borders)
     unique_labels = torch.unique(tpclabels, return_inverse=False, return_counts=False, sorted=True)
     tpcs = []
-
+    
     for tpclabel in unique_labels:
         if tpclabel < 0:
             continue
@@ -388,7 +388,7 @@ def nd_collate_fn(batch):
     In general, collate_fn is expected to convert [(features_sample1, labels_sample1), ...]
     to ([features_sample1, ...], [labels_sample1, ...]).
     
-    This function will convert time of creation to global + offset.
+    This function will convert time of creation to global + offset. <<==== THIS IS THE MAIN TASK OF THIS FUNCTION
 
     `Features` is a list/tuple, (FloatTensor, DoubleTensor, IntTensor)
 
@@ -402,8 +402,8 @@ def nd_collate_fn(batch):
 
     # FIXME: decimals to round depends on the units. Here -3 means ms in as I assume t64bit in us.
     t = torch.min(t64bit, dim=0)[0].round(decimals=-3)
-    t = t.expand(t64bit.size())
-    dt = t64bit - t
+    t = t.expand(t64bit.size()) ### global time
+    dt = t64bit - t ## time offset
     ts = torch.stack([t.to(torch.float32), dt.to(torch.float32)], dim=1)
     features = (torch.concatenate([features[0], ts], dim=1), features[1], features[2])
     

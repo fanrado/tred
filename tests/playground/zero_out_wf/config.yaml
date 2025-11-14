@@ -16,7 +16,7 @@ reset_noise: null #ke
 thres_noise: null #ke
 save_waveform: true
 fluctuate: false
-effq_out_nt: 1 #10
+effq_out_nt: 10 #10
 nimperpix: 10 # number of partitions : 10x10
 nd_response_shape: [25, 25, ] # shape of the field response
-npoints: [4,4,2]
+npoints: [2,2,2]

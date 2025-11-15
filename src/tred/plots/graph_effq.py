@@ -390,6 +390,9 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
                 # m1_drifter = torch.cuda.memory_allocated() / 1024**2
                 t1_drifter = cuda_synchronize()
 
+                ## clamp on the transverse diffusion spread
+                drifted[0][:, 1] = torch.clamp(drifted[0][:, 1], min=pspace/3)
+                drifted[0][:, 2] = torch.clamp(drifted[0][:, 2], min=pspace/3)
                 # dsigma, dtime, dcharge, dtail, dhead = drifter(local_time, charge, tail, head)
                 ## Uncomment if you need runtime -------------------------------------------------
                 if device == 'cuda':
@@ -775,9 +778,15 @@ def fullsim(config, finpath, foutpath):
         output_path = foutpath
 
     with torch.no_grad():
-        list_nbchunk = [10, 100, 300]
-        list_nbchunk_conv = [10, 50, 150]
+        # list_nbchunk = [10, 100, 300]
+        # list_nbchunk_conv = [10, 50, 150]
+        list_nbchunk = [100]
+        list_nbchunk_conv = [50]
+        # list_nbchunk = [100]
+        # list_nbchunk_conv = [100]
         for nbchunk in list_nbchunk:
             for nbchunk_conv in list_nbchunk_conv:
+                if nbchunk_conv > nbchunk:
+                    continue
                 info(f"Running with NBCHUNK={nbchunk}, NBCHUNK_CONV={nbchunk_conv}")        
                 runit('cuda', nbchunk_=nbchunk, nbchunk_conv_=nbchunk_conv)

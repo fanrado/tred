@@ -198,8 +198,11 @@ def runit(device='cpu'):
     # eventually replace this hard-wire with configuration
     twindow_max = 12_000 # 12_000 * 50ns = 600us
     
-    DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
-    DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    # DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    # DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    ## Use the diff coeff in larproperties
+    DL = 6.6270 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    DT = 13.2327 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     # DT = 10*8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     diffusion = torch.tensor([DL, DT, DT])
     grid_spacing = (pspace, pspace, tspace)
@@ -383,14 +386,16 @@ def runit(device='cpu'):
                 # print(f'type(drifted) : {type(drifted)}, dirfted : {drifted}')
                 ##================================ Apply cut on drift time ==================================
                 # tdrift = drifted[1] + torch.abs(drtoa / (tpcdataset.drift*velocity)) - local_time
-                tdrift = (drifted[0][:, 1])**2 / (2*DT)
+                # tdrift = (drifted[0][:, 1])**2 / (2*DT)
         
-                # ## Cut on trdift 60 us
-                mask_tdrif = tdrift >= 20
-                drifted = tuple([x[mask_tdrif] for x in drifted])
+                # # # ## Cut on trdift 60 us
+                # mask_tdrif = tdrift >= 20
+                # drifted = tuple([x[mask_tdrif] for x in drifted])
                 ##==========================================================================================
                 ## ============================== Clamp the diffusion spread ==============================
-                # drifted[0][:, 1] = torch.clamp(drifted[0][:, 1], min=pspace/3)
+                # dsigma follows this format of the diffusion coeff: diffusion = torch.tensor([DL, DT, DT])
+                drifted[0][:, 1] = torch.clamp(drifted[0][:, 1], min=pspace/3)
+                drifted[0][:, 2] = torch.clamp(drifted[0][:, 2], min=pspace/3)
                 # tdrift = (drifted[0][:, 1])**2 / (2*DT)
                 # drift_distance_ = tdrift * torch.abs(tpcdataset.drift*velocity)
                 # mask = drift_distance > 3
@@ -723,7 +728,7 @@ def runit(device='cpu'):
     # plt.tight_layout()
     # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_2d_correlation_drift_time_vs_transverse_diffusion_spread.png')
     # plt.close()
-    sys.exit()
+    # sys.exit()
     # Stop recording memory snapshot history.
     ## Uncomment if you want to save the output -------------
     waveforms["tile_yaml"] = tile_yaml

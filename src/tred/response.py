@@ -125,6 +125,9 @@ def ndlarsim(npy_path, nd_response_shape=None, nd_nimp=10):
     response_nimp = nd_nimp
     response_npxl = nd_response_shape[0]*2//response_nimp
 
+    # print(type(nd_response_shape))
+    # print(nd_response_shape)
+    nd_response_shape = list(nd_response_shape)
     if isinstance(npy_path, numpy.ndarray):
         raw = numpy.copy(npy_path)
     else:

@@ -336,7 +336,7 @@ def runit(device='cpu'):
         #     'tpc_lower_left_todevice_MB': m0_tpc_lower_left_todevice,
         #     'inds_range_todevice_MB': m0_inds_range
         # }
-
+        print('before batch')
         peak_memory_perbatch = {}
 
         for ibatch, (features, labels) in enumerate(loader):
@@ -394,8 +394,13 @@ def runit(device='cpu'):
                 ##==========================================================================================
                 ## ============================== Clamp the diffusion spread ==============================
                 # dsigma follows this format of the diffusion coeff: diffusion = torch.tensor([DL, DT, DT])
-                drifted[0][:, 1] = torch.clamp(drifted[0][:, 1], min=pspace/3)
-                drifted[0][:, 2] = torch.clamp(drifted[0][:, 2], min=pspace/3)
+                drifted[0][:, 1] = torch.clamp(drifted[0][:, 1], min=pspace/2)
+                drifted[0][:, 2] = torch.clamp(drifted[0][:, 2], min=pspace/2)
+                drifted[0][:, 0] = torch.clamp(drifted[0][:, 0], min=tspace*velocity/2)
+                # print('Before clamping: ')
+                # drifted[0] = torch.clamp(drifted[0], min=torch.tensor([[pspace/2, pspace/2, tspace*torch.abs(velocity)/2]]).to(device))
+                # print('between')
+                # drifted[0] = drifted[0].to(drifted[2].dtype)
                 # tdrift = (drifted[0][:, 1])**2 / (2*DT)
                 # drift_distance_ = tdrift * torch.abs(tpcdataset.drift*velocity)
                 # mask = drift_distance > 3
@@ -415,7 +420,7 @@ def runit(device='cpu'):
                 #     diffusion_Transv_spread_x = np.concatenate((diffusion_Transv_spread_x, drifted[0][:, 1].cpu().numpy()), axis=0)
                 #     diffusion_Transv_spread_y = np.concatenate((diffusion_Transv_spread_y, drifted[0][:, 2].cpu().numpy()), axis=0)
                 #     continue
-
+                print('After clamping: ')
                 # dsigma, dtime, dcharge, dtail, dhead = drifter(local_time, charge, tail, head)
                 ## Uncomment if you need runtime -------------------------------------------------
                 if device == 'cuda':
@@ -668,8 +673,8 @@ def runit(device='cpu'):
     # plt.title('Drift time distribution')
     # plt.grid(True)
     # plt.tight_layout()
-    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/ACC_EFFQ/tests/playground/zero_out_wf/drift_time_distribution.png')
-    # # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_drift_time_distribution.png')
+    # # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/ACC_EFFQ/tests/playground/zero_out_wf/drift_time_distribution.png')
+    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/November15_2025/CORRECT_drift_time_distribution.png')
     # plt.close()
     # # drift distance
     # plt.figure()
@@ -680,7 +685,8 @@ def runit(device='cpu'):
     # plt.title('Drift distance distribution')
     # plt.grid(True)
     # plt.tight_layout()
-    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/ACC_EFFQ/tests/playground/zero_out_wf/drift_distance_distribution.png')
+    # # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/ACC_EFFQ/tests/playground/zero_out_wf/drift_distance_distribution.png')
+    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/November15_2025/drift_distance_distribution.png')
     # plt.close()
     # ## Distribution of the diffusion spread
     # plt.figure()
@@ -691,11 +697,11 @@ def runit(device='cpu'):
     # plt.title('Diffusion spread distribution')
     # plt.grid(True)
     # plt.legend(loc='upper right')
-    # # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_diffusion_spread_distribution.png')
-    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/ACC_EFFQ/tests/playground/zero_out_wf/diffusion_spread_distribution.png')
+    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/November15_2025/CORRECT_diffusion_spread_distribution.png')
+    # # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/ACC_EFFQ/tests/playground/zero_out_wf/diffusion_spread_distribution.png')
     # plt.close()
-    ## 2d correlation plot of the drift time vs diffusion spread
-    ## longitudinal vs transverse spreads
+    # # 2d correlation plot of the drift time vs diffusion spread
+    # # longitudinal vs transverse spreads
     # plt.figure()
     # plt.hist2d(diffusion_Long_spread, diffusion_Transv_spread_x, bins=100, cmap='viridis', norm=plt.matplotlib.colors.LogNorm())
     # plt.colorbar(label='Counts')
@@ -704,7 +710,7 @@ def runit(device='cpu'):
     # plt.title('2D Correlation: \nLongitudinal vs Transverse Diffusion Spread')
     # plt.grid(True)
     # plt.tight_layout()
-    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_2d_correlation_longitudinal_vs_transverse_diffusion_spread.png')
+    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/November15_2025/CORRECT_2d_correlation_longitudinal_vs_transverse_diffusion_spread.png')
     # plt.close()
     # ## t_drift vs longitudinal spread
     # plt.figure()
@@ -715,7 +721,7 @@ def runit(device='cpu'):
     # plt.title('2D Correlation: \nDrift Time vs Longitudinal Diffusion Spread')
     # plt.grid(True)
     # plt.tight_layout()
-    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_2d_correlation_drift_time_vs_longitudinal_diffusion_spread.png')
+    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/November15_2025/CORRECT_2d_correlation_drift_time_vs_longitudinal_diffusion_spread.png')
     # plt.close()
     # ## t_drift vs transverse spread
     # plt.figure()
@@ -726,7 +732,7 @@ def runit(device='cpu'):
     # plt.title('2D Correlation: \nDrift Time vs Transverse Diffusion Spread')
     # plt.grid(True)
     # plt.tight_layout()
-    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/CORRECT_2d_correlation_drift_time_vs_transverse_diffusion_spread.png')
+    # plt.savefig('/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/ACC_EFFQ/November15_2025/CORRECT_2d_correlation_drift_time_vs_transverse_diffusion_spread.png')
     # plt.close()
     # sys.exit()
     # Stop recording memory snapshot history.
@@ -859,10 +865,15 @@ def fullsim(config, finpath, foutpath):
     # loading response
     if os.path.splitext(response_path)[1] == '.npz':
         fres = np.load(response_path)
-        response = ndlarsim(fres['response'], nd_nimp=nimperpix, nd_response_shape=nd_response_shape)
         tspace = fres['time_tick']  * units.us / units.us # us
+        print(f'tspace overridden to {tspace} us from response file.')
         drtoa = fres['drift_length'] * units.cm / units.cm # cm
         bin_size = fres["bin_size"] * units.cm / units.cm # cm
+        pspace = bin_size
+        nimperpix = int(fres['npath'])
+        print(f'nimperpix overridden to {nimperpix} from response file.')
+        pitch = pspace * nimperpix
+        response = ndlarsim(fres['response'], nd_nimp=nimperpix, nd_response_shape=fres['response'].shape[:2])
         warning(f'drtoa, tspace, will be overridden to {drtoa} cm, {tspace} us.')
         if abs(bin_size - pspace) > 1E-4:
             warning(f'Please manually check pspace. pspace in response file is {fres["bin_size"]} cm. pspace in config.')

@@ -52,9 +52,9 @@ thres_noise = None
 fluctuate = False
 effq_out_nt = 1
 
-pitch = 4.434*units.mm / units.cm # values are in units of cm
-nimperpix=10
-pspace = pitch/nimperpix
+# pitch = 4.434*units.mm / units.cm # values are in units of cm
+# nimperpix=10
+# pspace = pitch/nimperpix
 velocity = 1.59645 * units.mm/units.us / (units.cm/units.us) # values are in units of cm/us
 
 adc_hold_delay = None
@@ -194,13 +194,17 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
     NBCHUNK = NBCHUNK_SIZE
     NBCHUNK_CONV = NBCHUNK_CONV_SIZE
     # eventually replace this hard-wire with configuration
-    twindow_max = 12_000 + 12_000# 12_000 * 50ns = 600us
-    DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
-    DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    twindow_max = 12_000# 12_000 * 50ns = 600us
+    # DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    # DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    ## Use the diff coeff in larproperties
+    DL = 6.6270 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    DT = 13.2327 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     diffusion = torch.tensor([DL, DT, DT])
     grid_spacing = (pspace, pspace, tspace)
     # npixpersuper = 16+1-9
-    npixpersuper = 12+1-9
+    # npixpersuper = 12+1-9
+    npixpersuper = 8+1-5 
     # ntickperslice = 6912+1-6400
     ntickperslice = 384 # 128*3
     chunk_shape = (npixpersuper * nimperpix, npixpersuper * nimperpix, ntickperslice)
@@ -228,7 +232,9 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
 
     chunksum_readout = ChunkSum((1,1,120))
     # chunksum_readout = ChunkSum((1,1,12000))
-    convo = LacedConvo(lacing, o_shape=(12, 12, 6912))
+    # convo = LacedConvo(lacing, o_shape=(12, 12, 6912))
+    # convo = LacedConvo(lacing, o_shape=(12, 12, 512*5)) ### response with 2000 time samples
+    convo = LacedConvo(lacing, o_shape=(8, 8, 512*5)) ### response with 2000 time samples
     # convo = LacedConvo(lacing, o_shape=(12, 12, 2048))
     chunksum_i = ChunkSum((4, 4, 128), method='chunksum_inplace_v2')
 
@@ -381,6 +387,11 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                 drifted = drifter(local_time, charge, tail, head)
                 m1_drifter = torch.cuda.max_memory_allocated() / 1024**2
 
+                ## clamp on the transverse diffusion spread <<<<===
+                drifted[0][:, 1] = torch.clamp(drifted[0][:, 1], min=pspace/2)
+                drifted[0][:, 2] = torch.clamp(drifted[0][:, 2], min=pspace/2)
+                drifted[0][:, 0] = torch.clamp(drifted[0][:, 0], min=tspace*velocity/2)
+
                 # dsigma, dtime, dcharge, dtail, dhead = drifter(local_time, charge, tail, head)
                 ## Uncomment if you need runtime -------------------------------------------------
                 if device == 'cuda':
@@ -398,20 +409,21 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                 for ichunk, idrifted in enumerate(
                         iter_tensor_chunks(drifted, chunk_size=nbchunk)):
                     # qblock = raster(*idrifted)
-                    print(f'xyz_limit : {xyz_limit}')
+                    # print(f'xyz_limit : {xyz_limit}')
                     qblock = raster(*idrifted, mem_limit=mem_limit, shape_limit=shape_limit, xyz_limit=xyz_limit) # Include mem_limit, xyz_limit, and shape_limit HERE
                     mem_end_raster = torch.cuda.max_memory_allocated() / 1024**2
 
-                    # start = ichunk * nbchunk
-                    # end = start + idrifted[0].size(0)
-                    # p0 = tail[start:end]
-                    # p1 = head[start:end]
-                    # length2 = torch.sum((p0-p1)**2, dim=1)
-                    # invalid2 = length2 < 1E-9
-                    # qblock.data[invalid2] = 0
+                    start = ichunk * nbchunk
+                    end = start + idrifted[0].size(0)
+                    p0 = tail[start:end]
+                    p1 = head[start:end]
+                    length2 = torch.sum((p0-p1)**2, dim=1)
+                    invalid2 = length2 < 1E-9
+                    qblock.data[invalid2] = 0
 
-                    # signal = chunksum(qblock)
-                    # mem_chunksum_qblock = torch.cuda.max_memory_allocated() / 1024**2
+                    signal = chunksum(qblock)
+                    # continue #### <<<==== FOR THE CHUNKSUM TESTING ONLY
+                    mem_chunksum_qblock = torch.cuda.max_memory_allocated() / 1024**2
 
                     ## Uncomment if you want to save output npz ------------------------------------------------
                     # effqb = chunksum_effq_out(qblock)
@@ -421,7 +433,7 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                     # qblock = None
                     # effqb = None
                     ## ---------------------------------------------------------------------------------
-                    # Nqblock += signal.nbatches
+                    Nqblock += signal.nbatches
 
                     # if device == 'cuda':
                     #     torch.cuda.synchronize()
@@ -429,39 +441,39 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                     chunk_conv_mem = {}
                     currents = []
                     ichunk_conv = 0
-                    # for iqblock in iter_chunk_block(signal, chunk_size=NBCHUNK_CONV):
-                    #     if iqblock.nbatches == 0:
-                    #         continue
-                    #     iblock = convo(iqblock, response)
-                    #     m2 = torch.cuda.max_memory_allocated() / 1024**2
+                    for iqblock in iter_chunk_block(signal, chunk_size=NBCHUNK_CONV):
+                        if iqblock.nbatches == 0:
+                            continue
+                        iblock = convo(iqblock, response)
+                        m2 = torch.cuda.max_memory_allocated() / 1024**2
 
-                    #     current = chunksum_i(iblock)
-                    #     m3 = torch.cuda.max_memory_allocated() / 1024**2
-                    #     currents.append(current)
-                    #     chunk_conv_mem[f'ichunk_conv{ichunk_conv}'] = {
-                    #         'conv_MB': m2,
-                    #         'chunksum_i_MB': m3
-                    #     }
-                    #     ichunk_conv += 1
+                        current = chunksum_i(iblock)
+                        m3 = torch.cuda.max_memory_allocated() / 1024**2
+                        currents.append(current)
+                        chunk_conv_mem[f'ichunk_conv{ichunk_conv}'] = {
+                            'conv_MB': m2,
+                            'chunksum_i_MB': m3
+                        }
+                        ichunk_conv += 1
 
-                    # mem_end_conv = torch.cuda.max_memory_allocated() / 1024**2
+                    mem_end_conv = torch.cuda.max_memory_allocated() / 1024**2
 
-                    # # no need to chunk again; just sum
-                    # currents = concat_blocks(currents)
-                    # if currents is not None:
-                    #     currents = chunking.accumulate(currents)
-                    #     current_blocks.append(currents)
-                    # mem_end_sumcurrent = torch.cuda.max_memory_allocated() / 1024**2
+                    # no need to chunk again; just sum
+                    currents = concat_blocks(currents)
+                    if currents is not None:
+                        currents = chunking.accumulate(currents)
+                        current_blocks.append(currents)
+                    mem_end_sumcurrent = torch.cuda.max_memory_allocated() / 1024**2
 
-                    # mem_usage_chunking[f'ichunk_{ichunk}'] = {
-                    #     'raster_MB': mem_end_raster,
-                    #     'chunksum_qblock_MB': mem_chunksum_qblock,
-                    #     'conv_MB': {
-                    #         'total_MB': mem_end_conv,
-                    #         'details': chunk_conv_mem
-                    #     },
-                    #     'sumcurrent_MB': mem_end_sumcurrent
-                    # }
+                    mem_usage_chunking[f'ichunk_{ichunk}'] = {
+                        'raster_MB': mem_end_raster,
+                        'chunksum_qblock_MB': mem_chunksum_qblock,
+                        'conv_MB': {
+                            'total_MB': mem_end_conv,
+                            'details': chunk_conv_mem
+                        },
+                        'sumcurrent_MB': mem_end_sumcurrent
+                    }
                     # if device == 'cuda':
                     #     torch.cuda.synchronize()
                     # t05 = time.time()
@@ -470,11 +482,11 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                 # effq_blocks = concat_blocks(effq_blocks, device='cpu')
                 ## ---------------------------------------------------------------------------------
 
-                # # no need to chunk again; just sum
-                # currents = concat_blocks(current_blocks)
-                # if currents is not None:
-                #     currents = chunking.accumulate(currents)
-                # mem_sumcurrent = torch.cuda.max_memory_allocated() / 1024**2
+                # no need to chunk again; just sum
+                currents = concat_blocks(current_blocks)
+                if currents is not None:
+                    currents = chunking.accumulate(currents)
+                mem_sumcurrent = torch.cuda.max_memory_allocated() / 1024**2
 
                 # ## Uncomment if you need runtime -------------------------------------------------
                 # t04 = t03
@@ -483,25 +495,25 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                 #     torch.cuda.synchronize()
                 # t06 = time.time()
 
-                # if device == 'cuda':
-                #     torch.cuda.synchronize()
-                # t07 = time.time()
+                if device == 'cuda':
+                    torch.cuda.synchronize()
+                t07 = time.time()
 
+                if currents is None:
+                    info(f'itpc{itpc}, tpc label {tpcdataset.tpc_id}, batch label {ibatch}, '
+                         f'N segments {len(features[0])}, '
+                         f'N qblock {Nqblock}, '
+                         f'elapsed {t07 - stime} sec on {device}. Skipped empty batch.')
+                    continue
+                ## ---------------------------------------------------------------------------------
                 # if currents is None:
-                #     info(f'itpc{itpc}, tpc label {tpcdataset.tpc_id}, batch label {ibatch}, '
-                #          f'N segments {len(features[0])}, '
-                #          f'N qblock {Nqblock}, '
-                #          f'elapsed {t07 - stime} sec on {device}. Skipped empty batch.')
                 #     continue
-                # ## ---------------------------------------------------------------------------------
-                # # if currents is None:
-                # #     continue
 
-                # currents = chunksum_readout(currents)
-                # mem_readout_chunksum = torch.cuda.max_memory_allocated() / 1024**2 # >> change to peak_memory
+                currents = chunksum_readout(currents)
+                mem_readout_chunksum = torch.cuda.max_memory_allocated() / 1024**2 # >> change to peak_memory
 
-                # currents = concatenate_waveforms(currents, twindow_max, event_t=global_tref[1]//tspace)
-                # mem_readout_concat = torch.cuda.max_memory_allocated() / 1024**2
+                currents = concatenate_waveforms(currents, twindow_max, event_t=global_tref[1]//tspace)
+                mem_readout_concat = torch.cuda.max_memory_allocated() / 1024**2
 
                 # currents.data = currents.data * tspace / 1E3 # to ke-
                 # current_mask = (currents.location[:,[0,1]] <= inds_range) & (currents.location[:,[0,1]] >= 0)
@@ -516,10 +528,10 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                     'recomb_MB': mem_recomb,
                     'drifter_MB': m1_drifter,
                     'chunking_conv': mem_usage_chunking,
-                    # 'sum_current_MB': mem_sumcurrent,
-                    # 'chunksum_readout_MB': mem_readout_chunksum,
-                    # 'concat_readout_MB': mem_readout_concat,
-                    # 'formingBlock_readout_current_MB': mem_readout_current
+                    'sum_current_MB': mem_sumcurrent,
+                    'chunksum_readout_MB': mem_readout_chunksum,
+                    'concat_readout_MB': mem_readout_concat,
+                    'formingBlock_readout_current_MB': mem_readout_current
                 }
                 print(f'peak memory allocated : {torch.cuda.max_memory_allocated() / 1024**2} MB')
                 peak_memory_perbatch[f'batch_label{ibatch}'] = {
@@ -662,10 +674,10 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
     info(f"Peak memory usage {torch.cuda.max_memory_allocated()/1024**2:.2f} MB")
     ##
     ## save peak memory usage per TPC and per batch
-    # with open(f'/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/MEMORY_EVAL/peak_memory_usage_batch{BATCH_SIZE}_nbchunk{NBCHUNK}_nbchunkconv{NBCHUNK_CONV}.json', 'w') as fpm:
-    #     json.dump(peak_memory_perTPC, fpm)
-    with open(f'/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/MEMORY_EVAL/peak_memory_usage_memLimit{mem_limit}_xyzLimit{xyz_limit}_shapeLimit{shape_limit}.json', 'w') as fpm:
+    with open(f'/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/MEMORY_EVAL/peak_memory_usage_batch{BATCH_SIZE}_nbchunk{NBCHUNK}_nbchunkconv{NBCHUNK_CONV}.json', 'w') as fpm:
         json.dump(peak_memory_perTPC, fpm)
+    # with open(f'/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/MEMORY_EVAL/peak_memory_usage_memLimit{mem_limit}_xyzLimit{xyz_limit}_shapeLimit{shape_limit}.json', 'w') as fpm:
+    #     json.dump(peak_memory_perTPC, fpm)
 
 def plots(out):
     with torch.no_grad():
@@ -704,6 +716,9 @@ def fullsim(config, finpath, foutpath):
     global output_path
 
     global response
+    global pspace
+    global nimperpix
+    global pitch
 
     global mem_limit
     global xyz_limit
@@ -734,11 +749,22 @@ def fullsim(config, finpath, foutpath):
     # event_list = None
     # loading response
     if os.path.splitext(response_path)[1] == '.npz':
+        # fres = np.load(response_path)
+        # response = ndlarsim(fres['response'])
+        # tspace = fres['time_tick']  * units.us / units.us # us
+        # drtoa = fres['drift_length'] * units.cm / units.cm # cm
+        # bin_size = fres["bin_size"] * units.cm / units.cm # cm
+        #---- Update for the new resposne ---
         fres = np.load(response_path)
-        response = ndlarsim(fres['response'])
         tspace = fres['time_tick']  * units.us / units.us # us
+        print(f'tspace overridden to {tspace} us from response file.')
         drtoa = fres['drift_length'] * units.cm / units.cm # cm
         bin_size = fres["bin_size"] * units.cm / units.cm # cm
+        pspace = bin_size
+        nimperpix = int(fres['npath'])
+        print(f'nimperpix overridden to {nimperpix} from response file.')
+        pitch = pspace * nimperpix
+        response = ndlarsim(fres['response'], nd_nimp=nimperpix, nd_response_shape=fres['response'].shape[:2])
         warning(f'drtoa, tspace, will be overridden to {drtoa} cm, {tspace} us.')
         if abs(bin_size - pspace) > 1E-4:
             warning(f'Please manually check pspace. pspace in response file is {fres["bin_size"]} cm. pspace in config.')
@@ -770,11 +796,12 @@ def fullsim(config, finpath, foutpath):
         output_path = foutpath
 
     with torch.no_grad():
-        list_batch = [8192+4096] # 8192
-        # list_nbchunk = [10, 50, 100, 200, 300]
-        # list_nbchunk_conv = [10, 25, 50, 100, 150]
-        list_nbchunk = [1000]  # 1000 chunks gives a peak memory not overlapping with each other
-        list_nbchunk_conv = [100]
+        # list_batch = [8192+4096] # 8192
+        list_batch = [8192]
+        list_nbchunk = [10, 50, 100, 300]
+        list_nbchunk_conv = [10, 50, 100, 150]
+        # list_nbchunk = [1000]  # 1000 chunks gives a peak memory not overlapping with each other
+        # list_nbchunk_conv = [100]
         # runit('cuda')
         for b in list_batch:
             for nc in list_nbchunk:
@@ -782,6 +809,8 @@ def fullsim(config, finpath, foutpath):
         # b = 2048
         # nc = 100
         # ncc = 50
+                    if ncc > nc:
+                        continue
                     info(f'Running with batch size {b}, nbchunk {nc}, nbchunk_conv {ncc}')
                     runit(device='cuda', BATCH=b, NBCHUNK_SIZE=nc, NBCHUNK_CONV_SIZE=ncc)
                     torch.cuda.empty_cache()

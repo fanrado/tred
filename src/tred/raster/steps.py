@@ -626,38 +626,38 @@ def eval_qeff(Q, X0, X1, Sigma, offset, shape, origin, grid_spacing, method, npo
     xyz_limit = kwargs.get('xyz_limit', torch.tensor([100, 100, 100], requires_grad=False,
                                                      dtype=index_dtype, device=device))
     shape_limit = kwargs.get('shape_limit', 1000_000) # 1000_000 elements by default
+    # xyzchunk = (xyz_limit < shape) # & (torch.prod(shape) > shape_limit) # check the axis ::: Disabling shape_limit <<<<<=====
     # xyzchunk = (xyz_limit < shape) & (torch.prod(shape) > shape_limit) # check the axis
-    xyzchunk = (xyz_limit < shape) # & (torch.prod(shape) > shape_limit) # check the axis ::: Disabling shape_limit <<<<<=====
-    xyzchunkidx = torch.argmax(shape) # which one to use later
-    usex, usey, usez = xyzchunk & (torch.arange(3, device=device) == xyzchunkidx)
-    xchunk, ychunk, zchunk = xyz_limit[0], xyz_limit[1], xyz_limit[2]
+    # xyzchunkidx = torch.argmax(shape) # which one to use later
+    # usex, usey, usez = xyzchunk & (torch.arange(3, device=device) == xyzchunkidx)
+    # xchunk, ychunk, zchunk = xyz_limit[0], xyz_limit[1], xyz_limit[2]
 
-    print('---------------')
-    print(f'xyz_limit {xyz_limit} ------- shape {shape}')
-    print(f'xyzchunkidx : {xyzchunkidx},,,,, torch.arange(3, device=device) : {torch.arange(3, device=device)}')
-    # FIXME: dimensions are hard coded
-    kernel = create_wu_block(method, npoints, grid_spacing, device)
-    kernel = torch.flip(kernel, [3, 4, 5]) # it does not matter we flip at first or we multiply w and u at first
-    lmn = kernel.size()[:3]
-    lmn_prod = lmn[0] * lmn[1] *lmn[2]
-    rst = kernel.size()[3:]
-    kernel = kernel.view(lmn_prod, 1, rst[0], rst[1], rst[2]) # out_channel, in_channel/groups, R, S, T
-
-    # FIXME: Not friendly to jit
-    nbtensor = Q.size(0) * torch.prod(shape+1) * lmn_prod * 4 / 1024**2 # MB
-    nbtensor = nbtensor * 5 # intermediate states inflate memory by 5.
-    # nchunk = int(nbtensor // mem_limit) + 1
-    nchunk = 1 # ::: disabling mem_limit <<<<<=====
-    ##-------------------------------------
-    # usex, usey, usez = False, False, False
-    # xchunk, ychunk, zchunk = 1E30, 1E30, 1E30
-    # nchunk = 1
+    # print('---------------')
+    # print(f'xyz_limit {xyz_limit} ------- shape {shape}')
+    # print(f'xyzchunkidx : {xyzchunkidx},,,,, torch.arange(3, device=device) : {torch.arange(3, device=device)}')
+    # # FIXME: dimensions are hard coded
     # kernel = create_wu_block(method, npoints, grid_spacing, device)
     # kernel = torch.flip(kernel, [3, 4, 5]) # it does not matter we flip at first or we multiply w and u at first
     # lmn = kernel.size()[:3]
     # lmn_prod = lmn[0] * lmn[1] *lmn[2]
     # rst = kernel.size()[3:]
     # kernel = kernel.view(lmn_prod, 1, rst[0], rst[1], rst[2]) # out_channel, in_channel/groups, R, S, T
+
+    # # FIXME: Not friendly to jit
+    # nbtensor = Q.size(0) * torch.prod(shape+1) * lmn_prod * 4 / 1024**2 # MB
+    # nbtensor = nbtensor * 5 # intermediate states inflate memory by 5.
+    # # nchunk = int(nbtensor // mem_limit) + 1
+    # nchunk = 1 # ::: disabling mem_limit <<<<<=====
+    ##-------------------------------------
+    usex, usey, usez = False, False, False
+    xchunk, ychunk, zchunk = 1E30, 1E30, 1E30
+    nchunk = 1 # int(nbtensor // mem_limit) + 1
+    kernel = create_wu_block(method, npoints, grid_spacing, device)
+    kernel = torch.flip(kernel, [3, 4, 5]) # it does not matter we flip at first or we multiply w and u at first
+    lmn = kernel.size()[:3]
+    lmn_prod = lmn[0] * lmn[1] *lmn[2]
+    rst = kernel.size()[3:]
+    kernel = kernel.view(lmn_prod, 1, rst[0], rst[1], rst[2]) # out_channel, in_channel/groups, R, S, T
     ##------------------ RADO END -------------------
 
     x, y, z = create_node1ds(method, npoints, origin, grid_spacing, offset, shape, device)
@@ -665,12 +665,12 @@ def eval_qeff(Q, X0, X1, Sigma, offset, shape, origin, grid_spacing, method, npo
 
     # FIXME: may update batch dimension in the future
     chunks = [v.chunk(nchunk, dim=0) for v in [Q, X0, X1, Sigma, x, y, z]]
-    print(f'xyz_limit inside eval_qeff : {xyz_limit}')
-    print(f'xyzchunk inside eval_qeff : {xyzchunk}')
-    print(f'usex, usey, usez inside eval_qeff : {usex}, {usey}, {usez}')
-    print(f'xchunk, ychunk, zchunk inside eval_qeff : {xchunk}, {ychunk}, {zchunk}')
+    # print(f'xyz_limit inside eval_qeff : {xyz_limit}')
+    # print(f'xyzchunk inside eval_qeff : {xyzchunk}')
+    # print(f'usex, usey, usez inside eval_qeff : {usex}, {usey}, {usez}')
+    # print(f'xchunk, ychunk, zchunk inside eval_qeff : {xchunk}, {ychunk}, {zchunk}')
     for Qi, X0i, X1i, Sigmai, xi, yi, zi in zip(*chunks):
-        print(f'zi : {zi.size()}, zi.size(-1) : {zi.size(-1)}')
+        # print(f'zi : {zi.size()}, zi.size(-1) : {zi.size(-1)}')
         if usex:
             qjs = []
             for j in range(0, xi.size(-1), xchunk):
@@ -688,7 +688,7 @@ def eval_qeff(Q, X0, X1, Sigma, offset, shape, origin, grid_spacing, method, npo
             for j in range(0, zi.size(-1), zchunk):
                 qj = eval_qmodel(Qi, X0i, X1i, Sigmai, xi, yi, zi[..., j:j+zchunk])
                 qjs.append(qj)
-            print(f'---Number of z-chunks: {len(qjs)}')
+            # print(f'---Number of z-chunks: {len(qjs)}')
             charge = torch.cat(qjs, dim=-1)
         else:
             charge = eval_qmodel(Qi, X0i, X1i, Sigmai, xi, yi, zi, **kwargs)
@@ -708,7 +708,7 @@ def eval_qeff(Q, X0, X1, Sigma, offset, shape, origin, grid_spacing, method, npo
                                                 groups=lmn_prod)
 
         qeff.append(torch.sum(charge, dim=[1])) # 1 for merged l,m,n
-    print(f'Number of chunks processed: {len(qeff)}', torch.cat(qeff, dim=0).size())
+    # print(f'Number of chunks processed: {len(qeff)}', torch.cat(qeff, dim=0).size())
 
     return torch.cat(qeff, dim=0), offset
 

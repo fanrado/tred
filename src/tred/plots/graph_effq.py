@@ -51,10 +51,12 @@ reset_noise = None
 thres_noise = None
 fluctuate = False
 effq_out_nt = 1
+pspace = None
+nimperpix = None
 
-pitch = 4.434*units.mm / units.cm # values are in units of cm
-nimperpix=10
-pspace = pitch/nimperpix
+# pitch = 4.434*units.mm / units.cm # values are in units of cm
+# nimperpix=10
+# pspace = pitch/nimperpix
 velocity = 1.59645 * units.mm/units.us / (units.cm/units.us) # values are in units of cm/us
 
 adc_hold_delay = None
@@ -197,13 +199,18 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
     NBCHUNK = nbchunk_ # 100
     NBCHUNK_CONV = nbchunk_conv_ # 50
     # eventually replace this hard-wire with configuration
-    twindow_max = 12_000 + 12_000# 12_000 * 50ns = 600us
-    DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
-    DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    twindow_max = 12_000# 12_000 * 50ns = 600us
+    # DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    # DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    ##
+    ## Use the diff coeff in larproperties
+    DL = 6.6270 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    DT = 13.2327 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     diffusion = torch.tensor([DL, DT, DT])
     grid_spacing = (pspace, pspace, tspace)
     # npixpersuper = 16+1-9
-    npixpersuper = 12+1-9
+    # npixpersuper = 12+1-9 # default 12 (matching the convolution output) for the 9x9 field response
+    npixpersuper = 8+1-5 # 5x5, 8x8 to further speed up
     # ntickperslice = 6912+1-6400
     ntickperslice = 384 # 128*3
     chunk_shape = (npixpersuper * nimperpix, npixpersuper * nimperpix, ntickperslice)
@@ -231,7 +238,9 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
 
     chunksum_readout = ChunkSum((1,1,120))
     # chunksum_readout = ChunkSum((1,1,12000))
-    convo = LacedConvo(lacing, o_shape=(12, 12, 6912))
+    # convo = LacedConvo(lacing, o_shape=(12, 12, 6912))
+    # convo = LacedConvo(lacing, o_shape=(12, 12, 512*5))
+    convo = LacedConvo(lacing, o_shape=(8, 8, 512*5))
     # convo = LacedConvo(lacing, o_shape=(12, 12, 2048))
     chunksum_i = ChunkSum((4, 4, 128), method='chunksum_inplace_v2')
 
@@ -272,6 +281,7 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
                           'nbchunk_conv': NBCHUNK_CONV,}
     
     for itpc, tpcdataset in enumerate(tpcs):
+        print('Start TPC ', itpc)
         # m0_start_tpc = torch.cuda.memory_allocated() / 1024**2
         t0_start_tpc = cuda_synchronize()
 
@@ -386,13 +396,17 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
                 head[:,[1,2]] -= tpc_lower_left
 
                 # dsigma, dtime, dcharge, dtail, dhead
+                # print('Start drifting...')
                 drifted = drifter(local_time, charge, tail, head)
+                # print('Drifting done.')
                 # m1_drifter = torch.cuda.memory_allocated() / 1024**2
                 t1_drifter = cuda_synchronize()
 
                 ## clamp on the transverse diffusion spread
-                drifted[0][:, 1] = torch.clamp(drifted[0][:, 1], min=pspace/3)
-                drifted[0][:, 2] = torch.clamp(drifted[0][:, 2], min=pspace/3)
+                drifted[0][:, 1] = torch.clamp(drifted[0][:, 1], min=pspace/2)
+                drifted[0][:, 2] = torch.clamp(drifted[0][:, 2], min=pspace/2)
+                drifted[0][:, 0] = torch.clamp(drifted[0][:, 0], min=tspace*velocity/2)
+                # print('After clamping diffusion spread.')
                 # dsigma, dtime, dcharge, dtail, dhead = drifter(local_time, charge, tail, head)
                 ## Uncomment if you need runtime -------------------------------------------------
                 if device == 'cuda':
@@ -411,6 +425,9 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
                         iter_tensor_chunks(drifted, chunk_size=nbchunk)):
                     ss0 = cuda_synchronize() # before chunking
                     qblock = raster(*idrifted)
+                    # print('Rasterization done for chunk ', ichunk)
+                    # print(qblock.data.shape)
+                    
                     # mem_end_raster = torch.cuda.memory_allocated() / 1024**2
                     t_end_raster = cuda_synchronize()
 
@@ -422,7 +439,9 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
                     invalid2 = length2 < 1E-9
                     qblock.data[invalid2] = 0
 
+                    # print('Before chunksum qblock ')
                     signal = chunksum(qblock)
+                    # print('Chunksum qblock done for chunk ', ichunk)
                     # mem_chunksum_qblock = torch.cuda.memory_allocated() / 1024**2
                     t_chunksum_qblock = cuda_synchronize()
 
@@ -448,11 +467,13 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
                         if iqblock.nbatches == 0:
                             continue
                         s0 = cuda_synchronize()
+                        # print(f'iblock size : {iqblock.size()} \t response shape : {response.shape}')
                         iblock = convo(iqblock, response)
                         # m2 = torch.cuda.memory_allocated() / 1024**2
                         t2 = cuda_synchronize()
 
                         current = chunksum_i(iblock)
+
                         # m3 = torch.cuda.memory_allocated() / 1024**2
                         t3 = cuda_synchronize()
                         currents.append(current)
@@ -482,6 +503,7 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
                         },
                         'sumcurrent_sec': t_end_sumcurrent - t_end_conv
                     }
+                    # print(runtime_chunking[f'ichunk_{ichunk}'])
                     # if device == 'cuda':
                     #     torch.cuda.synchronize()
                     # t05 = time.time()
@@ -633,7 +655,9 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
                 info(f'Failed to process the batch {ibatch}')
                 info(e)
         runtime_perTPC[f'tpc{itpc}']['peak_memory_perbatch'] = runtime_perbatch
-
+    #     print('Finished TPC ', itpc)
+    #     print(f'Runtime per batch info saved for tpc {itpc} : {runtime_perbatch}')
+    # sys.exit()
     # Stop recording memory snapshot history.
     ## Uncomment if you want to save the output -------------
     # waveforms["tile_yaml"] = tile_yaml
@@ -722,6 +746,9 @@ def fullsim(config, finpath, foutpath):
     global output_path
 
     global response
+    global pspace
+    global nimperpix
+    global pitch
 
     with open(config, "r") as fconfig:
         config = yaml.safe_load(fconfig)
@@ -747,11 +774,23 @@ def fullsim(config, finpath, foutpath):
     # event_list = None
     # loading response
     if os.path.splitext(response_path)[1] == '.npz':
+        ## ---- NDLAr sim response -----
+        # fres = np.load(response_path)
+        # response = ndlarsim(fres['response'])
+        # tspace = fres['time_tick']  * units.us / units.us # us
+        # drtoa = fres['drift_length'] * units.cm / units.cm # cm
+        # bin_size = fres["bin_size"] * units.cm / units.cm # cm
+        #---- Update for the new response ---
         fres = np.load(response_path)
-        response = ndlarsim(fres['response'])
         tspace = fres['time_tick']  * units.us / units.us # us
+        print(f'tspace overridden to {tspace} us from response file.')
         drtoa = fres['drift_length'] * units.cm / units.cm # cm
         bin_size = fres["bin_size"] * units.cm / units.cm # cm
+        pspace = bin_size
+        nimperpix = int(fres['npath'])
+        print(f'nimperpix overridden to {nimperpix} from response file.')
+        pitch = pspace * nimperpix
+        response = ndlarsim(fres['response'], nd_nimp=nimperpix, nd_response_shape=fres['response'].shape[:2])
         warning(f'drtoa, tspace, will be overridden to {drtoa} cm, {tspace} us.')
         if abs(bin_size - pspace) > 1E-4:
             warning(f'Please manually check pspace. pspace in response file is {fres["bin_size"]} cm. pspace in config.')
@@ -778,15 +817,19 @@ def fullsim(config, finpath, foutpath):
         output_path = foutpath
 
     with torch.no_grad():
-        # list_nbchunk = [10, 100, 300]
-        # list_nbchunk_conv = [10, 50, 150]
-        list_nbchunk = [100]
-        list_nbchunk_conv = [50]
+        list_nbchunk = [10, 100, 300]
+        list_nbchunk_conv = [10, 50, 100, 150]
+        # list_nbchunk = [100]
+        # list_nbchunk_conv = [100]
+        # list_nbchunk = [300]
+        # list_nbchunk_conv = [100]
+        # list_nbchunk = [100]
+        # list_nbchunk_conv = [50]
         # list_nbchunk = [100]
         # list_nbchunk_conv = [100]
         for nbchunk in list_nbchunk:
             for nbchunk_conv in list_nbchunk_conv:
                 if nbchunk_conv > nbchunk:
                     continue
-                info(f"Running with NBCHUNK={nbchunk}, NBCHUNK_CONV={nbchunk_conv}")        
+                print(f"Running with NBCHUNK={nbchunk}, NBCHUNK_CONV={nbchunk_conv}")        
                 runit('cuda', nbchunk_=nbchunk, nbchunk_conv_=nbchunk_conv)

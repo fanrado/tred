@@ -300,6 +300,7 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50, factor_chunksum=1, facto
                           'chunksum_i_shape': chunk_shape_i_str,}
     
     for itpc, tpcdataset in enumerate(tpcs):
+        print('Start processing TPC:', itpc)
         # m0_start_tpc = torch.cuda.memory_allocated() / 1024**2
         t0_start_tpc = cuda_synchronize()
 
@@ -368,7 +369,7 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50, factor_chunksum=1, facto
         }
 
         runtime_perbatch = {}
-
+        # print('\tLoop over batches.....')
         for ibatch, (features, labels) in enumerate(loader):
 
             stime = cuda_synchronize() # start time of processing a batch
@@ -437,10 +438,16 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50, factor_chunksum=1, facto
                 Nqblock = 0
                 
                 runtime_chunking = {}
+                # print('\t\tLoop over chunks of drifted.....')
                 for ichunk, idrifted in enumerate(
                         iter_tensor_chunks(drifted, chunk_size=nbchunk)):
                     ss0 = cuda_synchronize() # before chunking
                     qblock = raster(*idrifted)
+                    qblock_shape = qblock.shape.cpu().numpy()
+                    # print(f'\t\t\tqblock shape : {qblock.shape}')
+                    # print(f'{qblock.shape[0]}, {qblock.shape[1]}, {qblock.shape[2]}')
+
+                    # print(f'qblock shape : {qblock.shape}')
                     # mem_end_raster = torch.cuda.memory_allocated() / 1024**2
                     t_end_raster = cuda_synchronize()
 
@@ -462,6 +469,9 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50, factor_chunksum=1, facto
                     runtime_chunking[f'ichunk_{ichunk}'] = {
                         'raster_sec': t_end_raster - ss0,
                         'chunksum_qblock_sec': t_chunksum_qblock - t_end_raster,
+                        'qblock_shape_x': int(qblock_shape[0]),
+                        'qblock_shape_y': int(qblock_shape[1]),
+                        'qblock_shape_z': int(qblock_shape[2]),
                         'conv_sec': {
                             'total_sec': 0,
                             'details': 0
@@ -881,7 +891,7 @@ def fullsim(config, finpath, foutpath):
         # list_factor_chunksum_i = [10]
         # list_factor_chunksum_i = [8, 9, 12, 16, 18, 24, 27, 32, 36, 48, 54, 64, 72, 96, 108, 128, 144, 192, 216, 256, 288, 384, 432, 576, 768, 864, 1152, 1728, 2304, 3456, 6912]
         list_factor_chunksum_i = [128]
-        list_factor_chunksum = [8/3]#[1/3, 1, 5/3, 10/3]
+        list_factor_chunksum = [1/48, 1/24, 1/12, 1/3, 1, 5/3, 10/3]
         list_factor_chunksum_readout = [1]
         for factor_chunksum in list_factor_chunksum:
             for factor_chunksum_i in list_factor_chunksum_i:

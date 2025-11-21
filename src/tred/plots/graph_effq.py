@@ -193,7 +193,7 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
     '''
     export_pickle = False
 
-    BATCH_SIZE = 8192 # 4096
+    BATCH_SIZE = 16384 # 8192, increased to 16384 to include all input track segments.
     # NBCHUNK = 100 # 100
     # NBCHUNK_CONV = 50 # 50
     NBCHUNK = nbchunk_ # 100
@@ -212,8 +212,10 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
     # npixpersuper = 12+1-9 # default 12 (matching the convolution output) for the 9x9 field response
     npixpersuper = 8+1-5 # 5x5, 8x8 to further speed up
     # ntickperslice = 6912+1-6400
-    ntickperslice = 384 # 128*3
+    # ntickperslice = 384 # 128*3
+    ntickperslice = 32
     chunk_shape = (npixpersuper * nimperpix, npixpersuper * nimperpix, ntickperslice)
+    # chunk_shape = (4,4,32)
 
     efield = 0.5 # kV/cm
     rho = 1.38 # g/cm^3
@@ -222,6 +224,7 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
     Wi = 23.6E-6 # MeV/pair
 
     lacing = torch.tensor([nimperpix, nimperpix, 1])
+    # lacing = torch.tensor([1, 1, 1])
 
     batch_size = BATCH_SIZE
 
@@ -240,9 +243,11 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
     # chunksum_readout = ChunkSum((1,1,12000))
     # convo = LacedConvo(lacing, o_shape=(12, 12, 6912))
     # convo = LacedConvo(lacing, o_shape=(12, 12, 512*5))
-    convo = LacedConvo(lacing, o_shape=(8, 8, 512*5))
+    # convo = LacedConvo(lacing, o_shape=(8, 8, 512*5))
+    convo = LacedConvo(lacing, o_shape=(8, 8, 512*4)) # for a response shape = 2000 and a signal shape = 32, the smallest output shape is 2048 (keeping it multiple of 128)
     # convo = LacedConvo(lacing, o_shape=(12, 12, 2048))
-    chunksum_i = ChunkSum((4, 4, 128), method='chunksum_inplace_v2')
+    # chunksum_i = ChunkSum((4, 4, 128), method='chunksum_inplace_v2')
+    chunksum_i = ChunkSum((4, 4, 32), method='chunksum_inplace_v2')
 
     chunksum_i = chunksum_i.to('cuda')
     chunksum_readout = chunksum_readout.to('cuda')
@@ -441,6 +446,7 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
 
                     # print('Before chunksum qblock ')
                     signal = chunksum(qblock)
+                    # print(f'Chunk {ichunk}: input qblock size {qblock.size()} -> chunksum qblock size {signal.size()}')
                     # print('Chunksum qblock done for chunk ', ichunk)
                     # mem_chunksum_qblock = torch.cuda.memory_allocated() / 1024**2
                     t_chunksum_qblock = cuda_synchronize()
@@ -467,8 +473,10 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
                         if iqblock.nbatches == 0:
                             continue
                         s0 = cuda_synchronize()
+                        # print('Before convolution')
                         # print(f'iblock size : {iqblock.size()} \t response shape : {response.shape}')
                         iblock = convo(iqblock, response)
+
                         # m2 = torch.cuda.memory_allocated() / 1024**2
                         t2 = cuda_synchronize()
 
@@ -660,27 +668,33 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50):
     # sys.exit()
     # Stop recording memory snapshot history.
     ## Uncomment if you want to save the output -------------
-    # waveforms["tile_yaml"] = tile_yaml
-    # waveforms["module_yaml"] = module_yaml
-    # waveforms["response_path"] = response_path
-    # waveforms["lifetime"] = lifetime
-    # waveforms["drtoa"] = drtoa
-    # waveforms["threshold"] = threshold
-    # waveforms["event_list"] = event_list
-    # waveforms["save_waveform"] = save_waveform
-    # waveforms["uncorr_noise"] = uncorr_noise
-    # waveforms["thres_noise"] = thres_noise
-    # waveforms["reset_noise"] = reset_noise
-    # waveforms["fluctuate"] = fluctuate
-    # waveforms["effq_out_nt"] = effq_out_nt
-    # waveforms["input_path"] = input_path
-    # waveforms["adc_hold_delay"] = adc_hold_delay
-    # waveforms["adc_down_time"] = adc_down_time
-    # waveforms["csa_reset_time "] = csa_reset_time
-    # waveforms["one_tick"] = one_tick
-    # waveforms[f'time_spacing'] = tspace
-
-    # write_npz(output_path, **waveforms)
+    waveforms["tile_yaml"] = tile_yaml
+    waveforms["module_yaml"] = module_yaml
+    waveforms["response_path"] = response_path
+    waveforms["lifetime"] = lifetime
+    waveforms["drtoa"] = drtoa
+    waveforms["threshold"] = threshold
+    waveforms["event_list"] = event_list
+    waveforms["save_waveform"] = save_waveform
+    waveforms["uncorr_noise"] = uncorr_noise
+    waveforms["thres_noise"] = thres_noise
+    waveforms["reset_noise"] = reset_noise
+    waveforms["fluctuate"] = fluctuate
+    waveforms["effq_out_nt"] = effq_out_nt
+    waveforms["input_path"] = input_path
+    waveforms["adc_hold_delay"] = adc_hold_delay
+    waveforms["adc_down_time"] = adc_down_time
+    waveforms["csa_reset_time "] = csa_reset_time
+    waveforms["one_tick"] = one_tick
+    waveforms[f'time_spacing'] = tspace
+    waveforms[f'chunksum_qblock_shape'] = chunksum._chunk_shape_tuple
+    waveforms[f'convo_lacing'] = lacing
+    waveforms[f'chunksum_readout_shape'] = chunksum_readout._chunk_shape_tuple
+    waveforms[f'chunksum_i_shape'] = chunksum_i._chunk_shape_tuple
+    waveforms[f'chunksum_effq_out_shape'] = chunksum_effq_out._chunk_shape_tuple
+    waveforms['nbchunk'] = NBCHUNK
+    waveforms['nbchunk_conv'] = NBCHUNK_CONV
+    write_npz(output_path, **waveforms)
     ## -----------------------------------------------------
     
     info(f'{t1-t0} construct')
@@ -811,25 +825,30 @@ def fullsim(config, finpath, foutpath):
     else:
         input_path = finpath
 
-    if foutpath is None:
-        output_path = "waveforms.npz"
-    else:
-        output_path = foutpath
+    ## These lines get output path from the shell script
+    # if foutpath is None:
+    #     output_path = "waveforms.npz"
+    # else:
+    #     output_path = foutpath
 
     with torch.no_grad():
-        list_nbchunk = [10, 100, 300]
-        list_nbchunk_conv = [10, 50, 100, 150]
+        # list_nbchunk = [10, 100, 300]
+        # list_nbchunk_conv = [10, 50, 100, 150]
+        list_nbchunk = [100, 300]
+        list_nbchunk_conv = [10, 50, 100]
         # list_nbchunk = [100]
-        # list_nbchunk_conv = [100]
+        # list_nbchunk_conv = [50]
         # list_nbchunk = [300]
         # list_nbchunk_conv = [100]
         # list_nbchunk = [100]
         # list_nbchunk_conv = [50]
         # list_nbchunk = [100]
         # list_nbchunk_conv = [100]
+        path_to_output = '/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/RUNTIME_EVAL'
         for nbchunk in list_nbchunk:
             for nbchunk_conv in list_nbchunk_conv:
                 if nbchunk_conv > nbchunk:
                     continue
+                output_path = '/'.join([path_to_output, f'BATCHSIZE16384_NBCHUNK{nbchunk}_NBCHUNKCONV{nbchunk_conv}_output.npz'])
                 print(f"Running with NBCHUNK={nbchunk}, NBCHUNK_CONV={nbchunk_conv}")        
                 runit('cuda', nbchunk_=nbchunk, nbchunk_conv_=nbchunk_conv)

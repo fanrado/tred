@@ -191,7 +191,7 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50, factor_chunksum=1, facto
     '''
     export_pickle = False
 
-    BATCH_SIZE = 4096 # 4096
+    BATCH_SIZE = 16384 # 4096
     # NBCHUNK = 100 # 100
     # NBCHUNK_CONV = 50 # 50
     NBCHUNK = nbchunk_ # 100
@@ -213,7 +213,8 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50, factor_chunksum=1, facto
     # factor_chunksum = 1
     # factor_chunksum_i = 5
     # factor_chunksum_readout = 1
-    ntickperslice = int(384*factor_chunksum)
+    # ntickperslice = int(384*factor_chunksum)
+    ntickperslice = int(32*factor_chunksum)
 
     chunk_shape = (npixpersuper * nimperpix, npixpersuper * nimperpix, ntickperslice)
 
@@ -249,16 +250,18 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50, factor_chunksum=1, facto
     # chunksum_readout = ChunkSum((1,1,12000))
     # convo = LacedConvo(lacing, o_shape=(12, 12, 6912))
     # convo = LacedConvo(lacing, o_shape=(12, 12, 12000))  
-    convo = LacedConvo(lacing, o_shape=(8, 8, 512*5)) ### response with 2000 time samples  
+    convo = LacedConvo(lacing, o_shape=(8, 8, 512*4)) ### response with 2000 time samples  
     # convo = LacedConvo(lacing, o_shape=(12, 12, 2048))
 
     # chunk_shape_i = (4, 4, 128)
     # chunk_shape_i = (4, 4, int(128*factor_chunksum_i))
-    chunk_shape_i = (4,4, factor_chunksum_i)
-    chunk_shape_i_str = f'{chunk_shape_i[0]}x{chunk_shape_i[1]}x{chunk_shape_i[2]}'
-    print(chunk_shape_i_str)
-    # chunksum_i = ChunkSum((4, 4, 128), method='chunksum_inplace_v2')
-    chunksum_i = ChunkSum(chunk_shape_i, method='chunksum_inplace_v2')
+    # chunk_shape_i = (4,4, factor_chunksum_i)
+    # chunk_shape_i_str = f'{chunk_shape_i[0]}x{chunk_shape_i[1]}x{chunk_shape_i[2]}'
+    # print(chunk_shape_i_str)
+    # # chunksum_i = ChunkSum((4, 4, 128), method='chunksum_inplace_v2')
+    # chunksum_i = ChunkSum(chunk_shape_i, method='chunksum_inplace_v2')
+    chunk_shape_i_str = f'{4}x{4}x{32}'
+    chunksum_i = ChunkSum((4, 4, 32), method='chunksum_inplace_v2')
 
     chunksum_i = chunksum_i.to(device=device)
     chunksum_readout = chunksum_readout.to(device=device)
@@ -717,27 +720,34 @@ def runit(device='cpu', nbchunk_=100, nbchunk_conv_=50, factor_chunksum=1, facto
 
     # Stop recording memory snapshot history.
     ## Uncomment if you want to save the output -------------
-    # waveforms["tile_yaml"] = tile_yaml
-    # waveforms["module_yaml"] = module_yaml
-    # waveforms["response_path"] = response_path
-    # waveforms["lifetime"] = lifetime
-    # waveforms["drtoa"] = drtoa
-    # waveforms["threshold"] = threshold
-    # waveforms["event_list"] = event_list
-    # waveforms["save_waveform"] = save_waveform
-    # waveforms["uncorr_noise"] = uncorr_noise
-    # waveforms["thres_noise"] = thres_noise
-    # waveforms["reset_noise"] = reset_noise
-    # waveforms["fluctuate"] = fluctuate
-    # waveforms["effq_out_nt"] = effq_out_nt
-    # waveforms["input_path"] = input_path
-    # waveforms["adc_hold_delay"] = adc_hold_delay
-    # waveforms["adc_down_time"] = adc_down_time
-    # waveforms["csa_reset_time "] = csa_reset_time
-    # waveforms["one_tick"] = one_tick
-    # waveforms[f'time_spacing'] = tspace
+    waveforms["tile_yaml"] = tile_yaml
+    waveforms["module_yaml"] = module_yaml
+    waveforms["response_path"] = response_path
+    waveforms["lifetime"] = lifetime
+    waveforms["drtoa"] = drtoa
+    waveforms["threshold"] = threshold
+    waveforms["event_list"] = event_list
+    waveforms["save_waveform"] = save_waveform
+    waveforms["uncorr_noise"] = uncorr_noise
+    waveforms["thres_noise"] = thres_noise
+    waveforms["reset_noise"] = reset_noise
+    waveforms["fluctuate"] = fluctuate
+    waveforms["effq_out_nt"] = effq_out_nt
+    waveforms["input_path"] = input_path
+    waveforms["adc_hold_delay"] = adc_hold_delay
+    waveforms["adc_down_time"] = adc_down_time
+    waveforms["csa_reset_time "] = csa_reset_time
+    waveforms["one_tick"] = one_tick
+    waveforms[f'time_spacing'] = tspace
+    waveforms[f'chunksum_qblock_shape'] = chunksum._chunk_shape_tuple
+    waveforms[f'convo_lacing'] = lacing
+    waveforms[f'chunksum_readout_shape'] = chunksum_readout._chunk_shape_tuple
+    waveforms[f'chunksum_i_shape'] = chunksum_i._chunk_shape_tuple
+    waveforms[f'chunksum_effq_out_shape'] = chunksum_effq_out._chunk_shape_tuple
+    waveforms['nbchunk'] = NBCHUNK
+    waveforms['nbchunk_conv'] = NBCHUNK_CONV
 
-    # write_npz(output_path, **waveforms)
+    write_npz(output_path, **waveforms)
     ## -----------------------------------------------------
     
     info(f'{t1-t0} construct')
@@ -870,10 +880,11 @@ def fullsim(config, finpath, foutpath):
     else:
         input_path = finpath
 
-    if foutpath is None:
-        output_path = "waveforms.npz"
-    else:
-        output_path = foutpath
+    ## These lines get the output path from the .sh script
+    # if foutpath is None:
+    #     output_path = "waveforms.npz"
+    # else:
+    #     output_path = foutpath
 
     with torch.no_grad():
         device = 'cuda:1'
@@ -886,18 +897,22 @@ def fullsim(config, finpath, foutpath):
         nbchunk = 100
         nbchunk_conv = 100
         info(f"Running with NBCHUNK={nbchunk}, NBCHUNK_CONV={nbchunk_conv}")  
+        path_to_output = '/home/rrazakami/work/ND-LAr/starting_over/OUTPUT_EVAL/CHUNKSUM_EVAL'
         # list_factor_chunksum_readout = [0.1, 0.5, 1.5, 2.5] 
         # list_factor_chunksum_i = [i*32+0.5 for i in range(100)]   
         # list_factor_chunksum_i = [10]
         # list_factor_chunksum_i = [8, 9, 12, 16, 18, 24, 27, 32, 36, 48, 54, 64, 72, 96, 108, 128, 144, 192, 216, 256, 288, 384, 432, 576, 768, 864, 1152, 1728, 2304, 3456, 6912]
         list_factor_chunksum_i = [128]
-        list_factor_chunksum = [1/48, 1/24, 1/12, 1/3, 1, 5/3, 10/3]
+        # list_factor_chunksum = [1/48, 1/24, 1/12, 1/3, 1, 5/3, 10/3]
+        # list_factor_chunksum = [1/16, 1/8, 1/4, 1/2, 1, 2, 4, 8, 16, 32]
+        list_factor_chunksum = [3,5,7]
         list_factor_chunksum_readout = [1]
         for factor_chunksum in list_factor_chunksum:
             for factor_chunksum_i in list_factor_chunksum_i:
                 for factor_chunksum_readout in list_factor_chunksum_readout:
                     info('-------------------------------------------- Starting new run --------------------------------------------------')
                     info(f'factor_chunksum_i : {factor_chunksum_i}, factor_chunksum: {factor_chunksum}, factor_chunksum_readout: {factor_chunksum_readout}')
+                    output_path = '/'.join([path_to_output, f'BATCHSIZE16384_chunksumQblock_{int(factor_chunksum*32)}_output.npz'])
                     runit(device=device, nbchunk_=nbchunk, nbchunk_conv_=nbchunk_conv, 
                           factor_chunksum=factor_chunksum,
                           factor_chunksum_i=factor_chunksum_i,

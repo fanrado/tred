@@ -1,10 +1,10 @@
 drtoa: 30.431 # cm
-response_path: "/home/yousen/Public/ndlar_shared/data/responses/response_44_v2a_full.npz" # default we used before
-# response_path: "/home/rrazakami/work/ND-LAr/data_tred/field_responses/TestsTredPaper/unitconverted_response/fr_4p4pitch_3.8pix_nogrid_10pathsperpixel.npz" # new file for the 10x10 configuration
+# response_path: "/home/yousen/Public/ndlar_shared/data/responses/response_44_v2a_full.npz"
+response_path: "/home/rrazakami/work/ND-LAr/data_tred/field_responses/TestsTredPaper/unitconverted_response/fr_4p4pitch_3.8pix_nogrid_10pathsperpixel.npz"
 # module_yaml: "/home/yousen/Documents/NDLAr2x2/tred/tests/playground/2x2_mod2mod_variation.yaml"
 # tile_yaml: "/home/yousen/Documents/NDLAr2x2/tred/tests/playground/multi_tile_layout-2.4.16.yaml"
-module_yaml: "/home/rrazakami/work/ND-LAr/starting_over/tred_debug/tests/playground/zero_out_wf/ndlarsim_geo/ndlar-module.yaml"
-tile_yaml: "/home/rrazakami/work/ND-LAr/starting_over/tred_debug/tests/playground/zero_out_wf/ndlarsim_geo/multi_tile_layout-3.0.40.yaml"
+module_yaml: "/home/rrazakami/work/ND-LAr/tredBenchmark_update_Dec17_2025/MEMORY_EVAL/tests/playground/zero_out_wf/ndlarsim_geo/ndlar-module.yaml"
+tile_yaml: "/home/rrazakami/work/ND-LAr/tredBenchmark_update_Dec17_2025/MEMORY_EVAL/tests/playground/zero_out_wf/ndlarsim_geo/multi_tile_layout-3.0.40.yaml"
 lifetime: 2.2 # ms
 threshold: 5. # ke
 event_list: [1003] # event IDs to process
@@ -13,7 +13,8 @@ reset_noise: null #ke
 thres_noise: null #ke
 save_waveform: true
 fluctuate: false
-eff_q_out: 20
-# nimperpix: 10 # number of partitions : 10x10
-# nd_response_shape: [45, 45, ] # shape of the field response
-# npoints: [2,2,2]
+effq_out_nt: 10
+### mem_limit, xyz_limit, and shape_limit for MEMORY_EVAL are disabled. See raster/steps.py for implementation.
+mem_limit: 18 # GB
+xyz_limit: 2 # default 100
+shape_limit: 100_000 # default 100_000

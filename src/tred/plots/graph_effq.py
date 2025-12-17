@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import json
 from tred.graph import Drifter, Raster, ChunkSum, LacedConvo, Charge, Current, Sim
 from tred.response import ndlarsim
 from tred.blocking import Block, concat_blocks, iter_chunk_block
@@ -48,9 +49,9 @@ thres_noise = None
 fluctuate = False
 effq_out_nt = 1
 
-pitch = 4.434*units.mm / units.cm # values are in units of cm
-nimperpix=10
-pspace = pitch/nimperpix
+# pitch = 4.434*units.mm / units.cm # values are in units of cm
+# nimperpix=10
+# pspace = pitch/nimperpix
 velocity = 1.59645 * units.mm/units.us / (units.cm/units.us) # values are in units of cm/us
 
 adc_hold_delay = None
@@ -176,19 +177,25 @@ def transform_indices_to_coord_3d(location, pitch, tick, velocity,
     locs[:,taxis] = anode - direction * velocity * tick * locs[:,taxis].to(torch.float32)
     return locs
 
-def runit(device='cpu'):
+def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
     '''
     '''
     export_pickle = False
 
+    BATCH_SIZE = BATCH
+    NBCHUNK = NBCHUNK_SIZE
+    NBCHUNK_CONV = NBCHUNK_CONV_SIZE
     # eventually replace this hard-wire with configuration
     twindow_max = 12_000 # 12_000 * 50ns = 600us
-    DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
-    DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    # DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    # DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    DL = 6.6270 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
+    DT = 13.2327 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     diffusion = torch.tensor([DL, DT, DT])
     grid_spacing = (pspace, pspace, tspace)
     # npixpersuper = 16+1-9
-    npixpersuper = 12+1-9
+    # npixpersuper = 12+1-9
+    npixpersuper = 8+1-5
     # ntickperslice = 6912+1-6400
     ntickperslice = 384 # 128*3
     chunk_shape = (npixpersuper * nimperpix, npixpersuper * nimperpix, ntickperslice)
@@ -201,7 +208,7 @@ def runit(device='cpu'):
 
     lacing = torch.tensor([nimperpix, nimperpix, 1])
 
-    batch_size = 4096
+    batch_size = BATCH_SIZE
 
     t0 = time.time()
     # create intermediate nodes
@@ -252,7 +259,15 @@ def runit(device='cpu'):
 
     thresholds = load_threshold(threshold)
 
+    peak_memory_perTPC = {'batch_size': BATCH_SIZE,
+                          'nbchunk': NBCHUNK,
+                          'nbchunk_conv': NBCHUNK_CONV,}
+    
     for itpc, tpcdataset in enumerate(tpcs):
+        torch.cuda.reset_peak_memory_stats()
+        print(f'Starting TPC {itpc}')
+        m0_start_tpc = torch.cuda.max_memory_allocated() / 1024**2
+        
         info(f"Drift direction: {tpcdataset.drift} in tpcid {tpcdataset.tpc_id}.")
         info(f"TPC lower corner: {tpcdataset.lower_left_corner} in itpc {tpcdataset.tpc_id}.")
         info(f"TPC upper corner: {tpcdataset.upper_corner} in itpc {tpcdataset.tpc_id}.")
@@ -261,40 +276,66 @@ def runit(device='cpu'):
         sampler = SortedLabelBatchSampler(tpcdataset.labels[:,0], batch_size)
         loader = CustomNDLoader(tpcdataset, sampler=sampler,
                                 batch_size=None, collate_fn=nd_collate_fn)
+        m0_loader = torch.cuda.max_memory_allocated() / 1024**2
+
         drifter = Drifter(diffusion, lifetime, tpcdataset.drift*velocity, fluctuate=fluctuate,
                           target=tpcdataset.anode, drtoa=drtoa)
         drifter = drifter.to(device=device)
+        m0_drifter_init = torch.cuda.max_memory_allocated() / 1024**2
 
         raster = Raster(tpcdataset.drift*velocity, grid_spacing, npoints=npoints).to(device=device)
+        m0_raster_init = torch.cuda.max_memory_allocated() / 1024**2
+
         # raster = raster.to(device=device)
         chunksum = chunksum.to(device=device)
+        m0_chunksum_todevice = torch.cuda.max_memory_allocated() / 1024**2
+
         convo = convo.to(device=device)
+        m0_convo_todevice = torch.cuda.max_memory_allocated() / 1024**2
 
         tpc_lower_left = tpcdataset.lower_left_corner.to(device).unsqueeze(0)
-        waveforms[f'tpc_lower_left_tpc{tpcdataset.tpc_id}'] = tpc_lower_left.cpu().squeeze(0)
-        waveforms[f'tpc_upper_tpc{tpcdataset.tpc_id}'] = tpcdataset.upper_corner.cpu()
-        waveforms[f'drift_direction_tpc{tpcdataset.tpc_id}'] = tpcdataset.drift
-        waveforms[f'tpc_anode_tpc{tpcdataset.tpc_id}'] = tpcdataset.anode
-        waveforms[f'tpc_cathode_tpc{tpcdataset.tpc_id}'] = tpcdataset.cathode
-        waveforms[f'pixel_pitch_tpc{tpcdataset.tpc_id}'] = pitch
+        m0_tpc_lower_left_todevice = torch.cuda.max_memory_allocated() / 1024**2
+
+        # waveforms[f'tpc_lower_left_tpc{tpcdataset.tpc_id}'] = tpc_lower_left.cpu().squeeze(0)
+        # waveforms[f'tpc_upper_tpc{tpcdataset.tpc_id}'] = tpcdataset.upper_corner.cpu()
+        # waveforms[f'drift_direction_tpc{tpcdataset.tpc_id}'] = tpcdataset.drift
+        # waveforms[f'tpc_anode_tpc{tpcdataset.tpc_id}'] = tpcdataset.anode
+        # waveforms[f'tpc_cathode_tpc{tpcdataset.tpc_id}'] = tpcdataset.cathode
+        # waveforms[f'pixel_pitch_tpc{tpcdataset.tpc_id}'] = pitch
 
 
         inds_range = (tpcdataset.upper_corner - tpcdataset.lower_left_corner) // pitch
         inds_range = inds_range.to(torch.int32).to(device)
+        m0_inds_range = torch.cuda.max_memory_allocated() / 1024**2
+
+        peak_memory_perTPC[f'tpc{itpc}'] = {
+            'start_tpc_MB': m0_start_tpc,
+            'loader_init_MB': m0_loader,
+            'drifter_init_MB': m0_drifter_init,
+            'raster_init_MB': m0_raster_init,
+            'chunksum_todevice_MB': m0_chunksum_todevice,
+            'convo_todevice_MB': m0_convo_todevice,
+            'tpc_lower_left_todevice_MB': m0_tpc_lower_left_todevice,
+            'inds_range_todevice_MB': m0_inds_range
+        }
+        # print(peak_memory_perTPC[f'tpc{itpc}'])
+        # sys.exit()
+        peak_memory_perbatch = {}
 
         for ibatch, (features, labels) in enumerate(loader):
-
+            torch.cuda.reset_peak_memory_stats()
+            
             stime = time.time()
             try:
                 if isinstance(event_list, list) and len(event_list)>0 and int(labels[0,0].numpy()) not in event_list:
                     continue
-
+                print('Start batch ', ibatch, ' with event id ', int(labels[0,0].numpy()))
                 global_tref = [features[0][0,-2].numpy(), torch.min(features[0][:,-1]).numpy()] # assume it is in us
-                waveforms[f'global_tref_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = np.array(global_tref)
-                waveforms[f'event_id_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = labels[0,0].numpy()
-                # assume there is only one particle in the event
-                waveforms[f'event_start_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = features[0][0,2:5].numpy()
-                waveforms[f'event_end_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = features[0][-1,5:8].numpy()
+                # waveforms[f'global_tref_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = np.array(global_tref)
+                # waveforms[f'event_id_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = labels[0,0].numpy()
+                # # assume there is only one particle in the event
+                # waveforms[f'event_start_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = features[0][0,2:5].numpy()
+                # waveforms[f'event_end_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = features[0][-1,5:8].numpy()
 
 
                 if device == 'cuda':
@@ -310,6 +351,7 @@ def runit(device='cpu'):
                           efield=efield, rho=rho, A3t=A3t, k3t=k3t, Wi=Wi)
                 if const_recomb:
                     charge = features[0][:,0] / Wi * const_recomb # MeV / MeV/pair
+                mem_recomb = torch.cuda.max_memory_allocated() / 1024**2
 
                 if device == 'cuda':
                     torch.cuda.synchronize()
@@ -323,6 +365,8 @@ def runit(device='cpu'):
 
                 # dsigma, dtime, dcharge, dtail, dhead
                 drifted = drifter(local_time, charge, tail, head)
+                m1_drifter = torch.cuda.max_memory_allocated() / 1024**2
+
                 # dsigma, dtime, dcharge, dtail, dhead = drifter(local_time, charge, tail, head)
                 drifted = list(d for d in drifted)
                 min_sigma = torch.tensor([[tspace*abs(velocity)/2,
@@ -333,53 +377,85 @@ def runit(device='cpu'):
                     torch.cuda.synchronize()
                 t03 = time.time()
 
-                nbchunk = 100
+                nbchunk = NBCHUNK
 
                 current_blocks = []
                 effq_blocks = []
                 Nqblock = 0
+
+                mem_usage_chunking = {}
                 for ichunk, idrifted in enumerate(
                         iter_tensor_chunks(drifted, chunk_size=nbchunk)):
+                    print('Start chunk ', ichunk)
                     qblock = raster(*idrifted)
+                    mem_end_raster = torch.cuda.max_memory_allocated() / 1024**2
+
                     # Check whether there is not-a-value elements.
                     assert ~torch.any(torch.isnan(qblock.data))
                     signal = chunksum(qblock)
-                    effqb = chunksum_effq_out(qblock)
-                    effqb.location[:, 0:2] //= nimperpix
-                    effqb.location[:, -1] += int(abs(drtoa/velocity)//tspace)
-                    effq_blocks.append(effqb)
-                    qblock = None
-                    effqb = None
+                    mem_chunksum_qblock = torch.cuda.max_memory_allocated() / 1024**2
+
+                    # effqb = chunksum_effq_out(qblock)
+                    # effqb.location[:, 0:2] //= nimperpix
+                    # effqb.location[:, -1] += int(abs(drtoa/velocity)//tspace)
+                    # effq_blocks.append(effqb)
+                    # qblock = None
+                    # effqb = None
                     Nqblock += signal.nbatches
 
                     # if device == 'cuda':
                     #     torch.cuda.synchronize()
                     # t05 = time.time()
 
+                    chunk_conv_mem = {}
+                    ichunk_conv = 0
                     currents = []
-                    for iqblock in iter_chunk_block(signal, chunk_size=50):
+                    for iqblock in iter_chunk_block(signal, chunk_size=NBCHUNK_CONV):
                         if iqblock.nbatches == 0:
                             continue
                         iblock = convo(iqblock, response)
+                        m2 = torch.cuda.max_memory_allocated() / 1024**2
+
                         current = chunksum_i(iblock)
+                        m3 = torch.cuda.max_memory_allocated() / 1024**2
+
                         currents.append(current)
+                        chunk_conv_mem[f'ichunk_conv{ichunk_conv}'] = {
+                            'conv_MB': m2,
+                            'chunksum_i_MB': m3
+                        }
+                        ichunk_conv += 1
+                    mem_end_conv = torch.cuda.max_memory_allocated() / 1024**2
 
                     # no need to chunk again; just sum
                     currents = concat_blocks(currents)
                     if currents is not None:
                         currents = chunking.accumulate(currents)
                         current_blocks.append(currents)
+                    mem_end_sumcurrent = torch.cuda.max_memory_allocated() / 1024**2
+                    mem_usage_chunking[f'ichunk_{ichunk}'] = {
+                        'raster_MB': mem_end_raster,
+                        'chunksum_qblock_MB': mem_chunksum_qblock,
+                        'conv_MB': {
+                            'total_MB': mem_end_conv,
+                            'details': chunk_conv_mem
+                        },
+                        'sumcurrent_MB': mem_end_sumcurrent
+                    }
+                    # print(mem_usage_chunking[f'ichunk_{ichunk}'])
 
                     # if device == 'cuda':
                     #     torch.cuda.synchronize()
                     # t05 = time.time()
-
-                effq_blocks = concat_blocks(effq_blocks, device='cpu')
+                ## Uncomment if you want to save the output npz    ---  
+                # effq_blocks = concat_blocks(effq_blocks, device='cpu')
+                ## ---------------------------------------------
 
                 # no need to chunk again; just sum
                 currents = concat_blocks(current_blocks)
                 if currents is not None:
                     currents = chunking.accumulate(currents)
+                mem_sumcurrent = torch.cuda.max_memory_allocated() / 1024**2
 
                 t04 = t03
                 t05 = t04
@@ -397,110 +473,149 @@ def runit(device='cpu'):
                          f'N qblock {Nqblock}, '
                          f'elapsed {t07 - stime} sec on {device}. Skipped empty batch.')
                     continue
+                print('Start readout... ')
 
                 currents = chunksum_readout(currents)
+                mem_readout_chunksum = torch.cuda.max_memory_allocated() / 1024**2
+
                 currents = concatenate_waveforms(currents, twindow_max, event_t=global_tref[1]//tspace)
+                mem_readout_concat = torch.cuda.max_memory_allocated() / 1024**2
+
                 currents.data = currents.data * tspace / 1E3 # to ke-
                 current_mask = (currents.location[:,[0,1]] <= inds_range) & (currents.location[:,[0,1]] >= 0)
                 current_mask = current_mask.all(dim=1)
                 currents = Block(data=currents.data[current_mask], location=currents.location[current_mask])
+                mem_readout_current = torch.cuda.max_memory_allocated() / 1024**2
 
-                if torch.isnan(currents.data).any():
-                    raise ValueError
+                mem_each_operation = {
+                    'recomb_MB': mem_recomb,
+                    'drifter_MB': m1_drifter,
+                    'chunking_conv': mem_usage_chunking,
+                    'sum_current_MB': mem_sumcurrent,
+                    'chunksum_readout_MB': mem_readout_chunksum,
+                    'concat_readout_MB': mem_readout_concat,
+                    'formingBlock_readout_current_MB': mem_readout_current
+                }
+                # print(mem_each_operation)
+                print(f'peak memory allocated : {torch.cuda.max_memory_allocated() / 1024**2} MB')
+                peak_memory_perbatch[f'batch_label{ibatch}'] = {
+                    'event_id': int(labels[0,0].numpy()),
+                    'N_segments': len(features[0]),
+                    'N_qblock': Nqblock,
+                    # 'mem_limit_MB': mem_limit*1024, # MB,
+                    # 'xyz_limit': xyz_limit,
+                    # 'shape_limit': shape_limit,
+                    'peak_memory_MB': torch.cuda.max_memory_allocated() / 1024**2,
+                    'each_operation_MB': mem_each_operation
+                }
 
-                # if isinstance(threshold, str):
-                #     raise NotImplementedError("To add support for loading a threshold file.")
-                thres = thresholds[tpcdataset.tpc_id].to(device)
-                if thres.ndim > 0:
-                    thres[thres<2] = 1E16 # FIXME: Temporarily disable low threshold channels
-                hits = nd_readout(currents, thres, adc_hold_delay, adc_down_time, csa_reset_time, one_tick=one_tick,
-                                  offset_to_align=0, # FIXME: how to calculate properly?
-                                  pixel_axes=(1,2), uncorr_noise=uncorr_noise, thres_noise=thres_noise, reset_noise=reset_noise)
+                # if torch.isnan(currents.data).any():
+                #     raise ValueError
 
-                runtime['to_device'].append(t01-t00)
-                runtime['recomb'].append(t02-t01)
-                runtime['drift'].append(t03-t02)
-                runtime['raster'].append(t04-t03)
-                runtime['chunksum_charge'].append(t05-t04)
-                runtime['convo'].append(t06-t05)
-                runtime['chunksum_current'].append(t07-t06)
+                # # if isinstance(threshold, str):
+                # #     raise NotImplementedError("To add support for loading a threshold file.")
+                # thres = thresholds[tpcdataset.tpc_id].to(device)
+                # if thres.ndim > 0:
+                #     thres[thres<2] = 1E16 # FIXME: Temporarily disable low threshold channels
+                # hits = nd_readout(currents, thres, adc_hold_delay, adc_down_time, csa_reset_time, one_tick=one_tick,
+                #                   offset_to_align=0, # FIXME: how to calculate properly?
+                #                   pixel_axes=(1,2), uncorr_noise=uncorr_noise, thres_noise=thres_noise, reset_noise=reset_noise)
 
-                info(f'{runtime["to_device"][-1]} data to {device}')
-                info(f'{runtime["recomb"][-1]} recomb')
-                info(f'{runtime["drift"][-1]} drift')
-                info(f'{runtime["raster"][-1]} raster')
-                info(f'{runtime["chunksum_charge"][-1]} chunksum_charge')
-                info(f'{runtime["convo"][-1]} convo')
-                info(f'{runtime["chunksum_current"][-1]} chunksum_current')
+                # runtime['to_device'].append(t01-t00)
+                # runtime['recomb'].append(t02-t01)
+                # runtime['drift'].append(t03-t02)
+                # runtime['raster'].append(t04-t03)
+                # runtime['chunksum_charge'].append(t05-t04)
+                # runtime['convo'].append(t06-t05)
+                # runtime['chunksum_current'].append(t07-t06)
 
-                if device == 'cuda':
-                    cuda_mem = torch.cuda.max_memory_allocated() / 1024**2
-                    info(f'Peak cuda usage: {cuda_mem} MB')
+                # info(f'{runtime["to_device"][-1]} data to {device}')
+                # info(f'{runtime["recomb"][-1]} recomb')
+                # info(f'{runtime["drift"][-1]} drift')
+                # info(f'{runtime["raster"][-1]} raster')
+                # info(f'{runtime["chunksum_charge"][-1]} chunksum_charge')
+                # info(f'{runtime["convo"][-1]} convo')
+                # info(f'{runtime["chunksum_current"][-1]} chunksum_current')
 
-                info(f'itpc{itpc}, tpc label {tpcdataset.tpc_id}, batch label {ibatch}, '
-                      f'N segments {len(features[0])}, '
-                      f'N qblock {Nqblock}, '
-                      f'elapsed {t07 - stime} sec on {device}.')
+                # if device == 'cuda':
+                #     cuda_mem = torch.cuda.max_memory_allocated() / 1024**2
+                #     info(f'Peak cuda usage: {cuda_mem} MB')
 
-                if save_waveform and currents is not None:
-                    waveforms[f'current_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = currents.data.cpu().numpy()
-                    waveforms[f'current_tpc{tpcdataset.tpc_id}_batch{ibatch}_location'] = currents.location.cpu().numpy()
+                # info(f'itpc{itpc}, tpc label {tpcdataset.tpc_id}, batch label {ibatch}, '
+                #       f'N segments {len(features[0])}, '
+                #       f'N qblock {Nqblock}, '
+                #       f'elapsed {t07 - stime} sec on {device}.')
 
-                # FIXME: global time offset
-                qbl = effq_blocks.location.to('cpu')
-                qoff = cshape_effq_out / 2
-                qoff[[0,1]] = qoff[[0,1]] / nimperpix
-                qoff[2] -= global_tref[1]//tspace
-                qblf32 = transform_indices_to_coord_3d(qbl, pitch, tspace, velocity,
-                                                       tpc_lower_left.to(torch.float32), tpcdataset.anode, tpcdataset.drift,
-                                                       paxes=(0,1), taxis=-1, offset=qoff)
-                qblf32 = qblf32[:, [2,0,1]]
-                qbd_fg = effq_blocks.data / 1E3 # to ke-
-                qbd = qbd_fg.sum(dim=(1,2,3))
-                qbd = torch.cat([qblf32, qbd[:,None]], dim=1)
+                # if save_waveform and currents is not None:
+                #     waveforms[f'current_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = currents.data.cpu().numpy()
+                #     waveforms[f'current_tpc{tpcdataset.tpc_id}_batch{ibatch}_location'] = currents.location.cpu().numpy()
 
-                hitl = hits[0].cpu()
-                # FIXME: :,:3 is hard-coded
-                hoff = torch.tensor([1/2, 1/2, adc_hold_delay-global_tref[1]//tspace]).to(torch.float32)
-                hitlf32 = transform_indices_to_coord_3d(hitl[:,:3], pitch, tspace, velocity,
-                                                        tpc_lower_left.to(torch.float32), tpcdataset.anode, tpcdataset.drift,
-                                                        paxes=(0,1), taxis=-1, offset=hoff)
-                hitlf32 = hitlf32[:, [2,0,1]]
-                hitd = torch.cat([hitlf32, hits[1][:,None].cpu()], dim=1)
+                # # FIXME: global time offset
+                # qbl = effq_blocks.location.to('cpu')
+                # qoff = cshape_effq_out / 2
+                # qoff[[0,1]] = qoff[[0,1]] / nimperpix
+                # qoff[2] -= global_tref[1]//tspace
+                # qblf32 = transform_indices_to_coord_3d(qbl, pitch, tspace, velocity,
+                #                                        tpc_lower_left.to(torch.float32), tpcdataset.anode, tpcdataset.drift,
+                #                                        paxes=(0,1), taxis=-1, offset=qoff)
+                # qblf32 = qblf32[:, [2,0,1]]
+                # qbd_fg = effq_blocks.data / 1E3 # to ke-
+                # qbd = qbd_fg.sum(dim=(1,2,3))
+                # qbd = torch.cat([qblf32, qbd[:,None]], dim=1)
 
-                waveforms[f'hits_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = hitd.numpy()
-                waveforms[f'hits_tpc{tpcdataset.tpc_id}_batch{ibatch}_location'] = hitl.numpy()
-                waveforms[f'effq_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = qbd
-                waveforms[f'effq_tpc{tpcdataset.tpc_id}_batch{ibatch}_location'] = qbl
-                waveforms[f'effq_fine_grain_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = qbd_fg
-                waveforms[f'effq_fine_grain_tpc{tpcdataset.tpc_id}_batch{ibatch}_location'] = qbl
+                # hitl = hits[0].cpu()
+                # # FIXME: :,:3 is hard-coded
+                # hoff = torch.tensor([1/2, 1/2, adc_hold_delay-global_tref[1]//tspace]).to(torch.float32)
+                # hitlf32 = transform_indices_to_coord_3d(hitl[:,:3], pitch, tspace, velocity,
+                #                                         tpc_lower_left.to(torch.float32), tpcdataset.anode, tpcdataset.drift,
+                #                                         paxes=(0,1), taxis=-1, offset=hoff)
+                # hitlf32 = hitlf32[:, [2,0,1]]
+                # hitd = torch.cat([hitlf32, hits[1][:,None].cpu()], dim=1)
+
+                # waveforms[f'hits_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = hitd.numpy()
+                # waveforms[f'hits_tpc{tpcdataset.tpc_id}_batch{ibatch}_location'] = hitl.numpy()
+                # waveforms[f'effq_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = qbd
+                # waveforms[f'effq_tpc{tpcdataset.tpc_id}_batch{ibatch}_location'] = qbl
+                # waveforms[f'effq_fine_grain_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = qbd_fg
+                # waveforms[f'effq_fine_grain_tpc{tpcdataset.tpc_id}_batch{ibatch}_location'] = qbl
 
                 torch.cuda.reset_peak_memory_stats()
             except IndexError as e:
-                raise e
+                info(e)
+            except Exception as e:
+                info(e)
+                peak_memory_perbatch[f'batch_label{ibatch}'] = {
+                    'event_id': int(labels[0,0].numpy()),
+                    'N_segments': len(features[0]),
+                    'N_qblock': -1, # -1 indicates failure to run the batch
+                    'peak_memory_MB': torch.cuda.max_memory_allocated() / 1024**2,
+                    'each_operation_MB': dict() # empty dict indicates failure to run the batch
+                }
 
-    # Stop recording memory snapshot history.
-    waveforms["tile_yaml"] = tile_yaml
-    waveforms["module_yaml"] = module_yaml
-    waveforms["response_path"] = response_path
-    waveforms["lifetime"] = lifetime
-    waveforms["drtoa"] = drtoa
-    waveforms["threshold"] = threshold
-    waveforms["event_list"] = event_list
-    waveforms["save_waveform"] = save_waveform
-    waveforms["uncorr_noise"] = uncorr_noise
-    waveforms["thres_noise"] = thres_noise
-    waveforms["reset_noise"] = reset_noise
-    waveforms["fluctuate"] = fluctuate
-    waveforms["effq_out_nt"] = effq_out_nt
-    waveforms["input_path"] = input_path
-    waveforms["adc_hold_delay"] = adc_hold_delay
-    waveforms["adc_down_time"] = adc_down_time
-    waveforms["csa_reset_time "] = csa_reset_time
-    waveforms["one_tick"] = one_tick
-    waveforms[f'time_spacing'] = tspace
+        peak_memory_perTPC[f'tpc{itpc}']['peak_memory_perbatch'] = peak_memory_perbatch
 
-    write_npz(output_path, **waveforms)
+    # # Stop recording memory snapshot history.
+    # waveforms["tile_yaml"] = tile_yaml
+    # waveforms["module_yaml"] = module_yaml
+    # waveforms["response_path"] = response_path
+    # waveforms["lifetime"] = lifetime
+    # waveforms["drtoa"] = drtoa
+    # waveforms["threshold"] = threshold
+    # waveforms["event_list"] = event_list
+    # waveforms["save_waveform"] = save_waveform
+    # waveforms["uncorr_noise"] = uncorr_noise
+    # waveforms["thres_noise"] = thres_noise
+    # waveforms["reset_noise"] = reset_noise
+    # waveforms["fluctuate"] = fluctuate
+    # waveforms["effq_out_nt"] = effq_out_nt
+    # waveforms["input_path"] = input_path
+    # waveforms["adc_hold_delay"] = adc_hold_delay
+    # waveforms["adc_down_time"] = adc_down_time
+    # waveforms["csa_reset_time "] = csa_reset_time
+    # waveforms["one_tick"] = one_tick
+    # waveforms[f'time_spacing'] = tspace
+
+    # write_npz(output_path, **waveforms)
 
     info(f'{t1-t0} construct')
     info(f'{t2-t1} get response')
@@ -523,6 +638,9 @@ def runit(device='cpu'):
     torch.cuda.memory._record_memory_history(enabled=None)
 
     info(f"Peak memory usage {torch.cuda.max_memory_allocated()/1024**2:.2f} MB")
+    ## save peak memory usage per TPC and per batch
+    with open(f'/home/rrazakami/work/ND-LAr/tredBenchmark_update_Dec17_2025/OUTPUT_EVAL/MEMORY_EVAL/peak_memory_usage_batch{BATCH_SIZE}_nbchunk{NBCHUNK}_nbchunkconv{NBCHUNK_CONV}.json', 'w') as fpm:
+        json.dump(peak_memory_perTPC, fpm)
 
 def plots(out):
     with torch.no_grad():
@@ -563,6 +681,9 @@ def fullsim(config, finpath, foutpath):
     global output_path
 
     global response
+    global pspace
+    global nimperpix
+    global pitch
 
     with open(config, "r") as fconfig:
         config = yaml.safe_load(fconfig)
@@ -588,11 +709,15 @@ def fullsim(config, finpath, foutpath):
     # loading response
     if os.path.splitext(response_path)[1] == '.npz':
         fres = np.load(response_path)
-        response = ndlarsim(fres['response'])
+        # response = ndlarsim(fres['response'])
         tspace = fres['time_tick']  * units.us / units.us # us
         drtoa = fres['drift_length'] * units.cm / units.cm # cm
         bin_size = fres["bin_size"] * units.cm / units.cm # cm
+        pspace = bin_size
+        nimperpix = int(fres['npath'])
+        pitch = pspace * nimperpix
         warning(f'drtoa, tspace, will be overridden to {drtoa} cm, {tspace} us.')
+        response = ndlarsim(fres['response'], nd_nimp=nimperpix, nd_response_shape=fres['response'].shape[:2])
         if abs(bin_size - pspace) > 1E-4:
             warning(f'Please manually check pspace. pspace in response file is {fres["bin_size"]} cm. pspace in config.')
     else:
@@ -611,11 +736,28 @@ def fullsim(config, finpath, foutpath):
         input_path = "/home/yousen/Public/ndlar_shared/data/tred_2x2_2025010/filtered_MiniRun5_1E19_RHC.convert2h5.0000000.EDEPSIM.hdf5"
     else:
         input_path = finpath
-
+    print(f'Input path: {input_path}')
     if foutpath is None:
         output_path = "waveforms.npz"
     else:
         output_path = foutpath
+    print(f'Output path: {output_path}')
 
     with torch.no_grad():
-        runit('cuda')
+        list_batches = [16384]
+        # list_nbchunk = [100, 300, 200]
+        # list_nbchunk_conv = [50, 100, 200, 300]
+        # list_nbchunk = [100, 150, 200]#, 50]
+        # list_nbchunk_conv = [50, 100]
+        list_nbchunk = [100, 200, 300]
+        list_nbchunk_conv = [10, 50, 100]
+        for b in list_batches:
+            for nc in list_nbchunk:
+                for ncc in list_nbchunk_conv:
+                    if [nc, ncc] in [[200, 10], [200, 100], [300, 50], [300, 100]]:
+                        continue
+                    if ncc > nc:
+                        continue
+                    info('===================xxxxxxxxxxxxxxx=============')
+                    info(f'Starting fullsim with batch size {b}, nbchunk {nc}, nbchunk_conv {ncc}')
+                    runit(device='cuda', BATCH=b, NBCHUNK_SIZE=nc, NBCHUNK_CONV_SIZE=ncc)

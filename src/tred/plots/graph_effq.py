@@ -197,7 +197,8 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
     # npixpersuper = 12+1-9
     npixpersuper = 8+1-5
     # ntickperslice = 6912+1-6400
-    ntickperslice = 384 # 128*3
+    # ntickperslice = 384 # 128*3
+    ntickperslice = 32 # 128*3
     chunk_shape = (npixpersuper * nimperpix, npixpersuper * nimperpix, ntickperslice)
 
     efield = 0.5 # kV/cm
@@ -223,9 +224,10 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
 
     chunksum_readout = ChunkSum((1,1,120))
     # chunksum_readout = ChunkSum((1,1,12000))
-    convo = LacedConvo(lacing, o_shape=(12, 12, 6912))
-    # convo = LacedConvo(lacing, o_shape=(12, 12, 2048))
-    chunksum_i = ChunkSum((4, 4, 128), method='chunksum_inplace_v2')
+    # convo = LacedConvo(lacing, o_shape=(12, 12, 6912))
+    convo = LacedConvo(lacing, o_shape=(8, 8, 512*5)) #### <<---
+    # chunksum_i = ChunkSum((4, 4, 128), method='chunksum_inplace_v2')
+    chunksum_i = ChunkSum((4, 4, 32), method='chunksum_inplace_v2')
 
     chunksum_i = chunksum_i.to(device)
     chunksum_readout = chunksum_readout.to(device)
@@ -754,10 +756,11 @@ def fullsim(config, finpath, foutpath):
         for b in list_batches:
             for nc in list_nbchunk:
                 for ncc in list_nbchunk_conv:
-                    if [nc, ncc] in [[200, 10], [200, 100], [300, 50], [300, 100]]:
+                    if [nc, ncc] in [[200, 10], [200, 100], [300, 100]]:
                         continue
                     if ncc > nc:
                         continue
                     info('===================xxxxxxxxxxxxxxx=============')
                     info(f'Starting fullsim with batch size {b}, nbchunk {nc}, nbchunk_conv {ncc}')
                     runit(device='cuda', BATCH=b, NBCHUNK_SIZE=nc, NBCHUNK_CONV_SIZE=ncc)
+                    # sys.exit()

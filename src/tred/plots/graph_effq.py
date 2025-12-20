@@ -202,7 +202,8 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
     # npixpersuper = 12+1-9
     npixpersuper = 8+1-5 # 5x5, 8x8 to further speed up
     # ntickperslice = 6912+1-6400
-    ntickperslice = 384 # 128*3
+    # ntickperslice = 384 # 128*3
+    ntickperslice = 32 # 128*3
     chunk_shape = (npixpersuper * nimperpix, npixpersuper * nimperpix, ntickperslice)
 
     efield = 0.5 # kV/cm
@@ -228,9 +229,11 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
 
     chunksum_readout = ChunkSum((1,1,120))
     # chunksum_readout = ChunkSum((1,1,12000))
-    convo = LacedConvo(lacing, o_shape=(12, 12, 6912))
+    # convo = LacedConvo(lacing, o_shape=(12, 12, 6912))
+    convo = LacedConvo(lacing, o_shape=(8, 8, 512*4)) #### <<---
     # convo = LacedConvo(lacing, o_shape=(12, 12, 2048))
-    chunksum_i = ChunkSum((4, 4, 128), method='chunksum_inplace_v2')
+    # chunksum_i = ChunkSum((4, 4, 128), method='chunksum_inplace_v2')
+    chunksum_i = ChunkSum((4, 4, 32), method='chunksum_inplace_v2')
 
     chunksum_i = chunksum_i.to(device)
     chunksum_readout = chunksum_readout.to(device)
@@ -342,13 +345,14 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                 if device == 'cuda':
                     torch.cuda.synchronize()
                 t00 = time.time()
+
+                t0_recomb = cuda_synchronize()
                 features = [f.to(device=device) for f in features]
 
                 if device == 'cuda':
                     torch.cuda.synchronize()
                 # t01 = time.time()
-                t0_recomb = cuda_synchronize()
-
+                
                 charge = birks(dE=features[0][:,0], dEdx=features[0][:,1],
                           efield=efield, rho=rho, A3t=A3t, k3t=k3t, Wi=Wi)
                 if const_recomb:
@@ -733,10 +737,15 @@ def fullsim(config, finpath, foutpath):
 
     with torch.no_grad():
         BATCH = 16384
-        list_nbchunk = [100, 300, 200]
-        list_nbchunk_conv = [10, 50, 100]
+        # list_nbchunk = [300, 100, 200]
+        # list_nbchunk_conv = [10, 50, 100]
+        list_nbchunk = [100]
+        list_nbchunk_conv = [50]
         for nbchunk in list_nbchunk:
             for nbchunk_conv in list_nbchunk_conv:
+                if [nbchunk, nbchunk_conv] in [[200, 10], [200, 100], [300, 100]]:
+                        continue
                 if nbchunk_conv > nbchunk:
                     continue
+                print(f'Starting BATCH={BATCH}, NBCHUNK={nbchunk}, NBCHUNK_CONV={nbchunk_conv}')
                 runit(device='cuda', BATCH=BATCH, NBCHUNK_SIZE=nbchunk, NBCHUNK_CONV_SIZE=nbchunk_conv)

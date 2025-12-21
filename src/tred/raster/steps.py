@@ -1,3 +1,4 @@
+import sys
 import torch
 from torch import Tensor
 
@@ -8,7 +9,8 @@ import logging
 
 logger = logging.getLogger('tred.raster.steps')
 
-float_dtype = torch.float64
+# float_dtype = torch.float64
+float_dtype = torch.float32 ## Using float32 precision to recover past results
 
 
 def to_tensor(source, device, dtype=float_dtype):
@@ -651,6 +653,9 @@ def eval_qeff(Q, X0, X1, Sigma, offset, shape, origin, grid_spacing,
        vdim of npoints in principle can be different from offset, shape, origin, spacing.
        Now it is fixed to the same as others.
     '''
+    # convert sigma to float32
+    Sigma = Sigma.float()
+
     if not isinstance(Q, torch.Tensor):
         raise ValueError('Q must be a torch.Tensor')
     device = Q.device
@@ -685,12 +690,11 @@ def eval_qeff(Q, X0, X1, Sigma, offset, shape, origin, grid_spacing,
                                      qmodel=qpoint_model, **kwargs),
                          eval_qmodel(Q, X0, X1, Sigma, x, y, z,
                                      qmodel=qline_model, **kwargs))
-
     charge = charge.view(Q.size(0), lmn_prod,  # batch, chanenel
                          shape[0], shape[1], shape[2])  # D1, D2, D3
     # FIXME: the padding is only valid for interpolation points == 3
     charge = torch.nn.functional.conv3d(charge, kernel, padding='same',
-                                        groups=lmn_prod)
+                                    groups=lmn_prod)
     charge = charge.sum(dim=1)
     return charge, offset
 

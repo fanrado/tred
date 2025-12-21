@@ -432,6 +432,7 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                             'chunksum_i_time': t3 - t2
                         }
                         ichunk_conv += 1
+                    # print(chunk_conv_time)
                     t_end_conv = cuda_synchronize()
 
                     # no need to chunk again; just sum
@@ -583,8 +584,8 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                 torch.cuda.reset_peak_memory_stats()
             except IndexError as e:
                 info(e)
-            except Exception as e:
-                info(e)
+            # except Exception as e:
+            #     info(e)
         runtime_perTPC[f'tpc{itpc}']['peak_memory_perbatch'] = runtime_perbatch
 
     # # Stop recording memory snapshot history.
@@ -703,6 +704,7 @@ def fullsim(config, finpath, foutpath):
         fres = np.load(response_path)
         # response = ndlarsim(fres['response'])
         tspace = fres['time_tick']  * units.us / units.us # us
+
         drtoa = fres['drift_length'] * units.cm / units.cm # cm
         bin_size = fres["bin_size"] * units.cm / units.cm # cm
         warning(f'drtoa, tspace, will be overridden to {drtoa} cm, {tspace} us.')
@@ -736,11 +738,12 @@ def fullsim(config, finpath, foutpath):
         output_path = foutpath
 
     with torch.no_grad():
-        BATCH = 16384
-        # list_nbchunk = [300, 100, 200]
-        # list_nbchunk_conv = [10, 50, 100]
-        list_nbchunk = [100]
-        list_nbchunk_conv = [50]
+        # BATCH = 16384
+        BATCH = 4096*6
+        list_nbchunk = [300, 100]
+        list_nbchunk_conv = [10, 50, 100]
+        # list_nbchunk = [100]
+        # list_nbchunk_conv = [10]
         for nbchunk in list_nbchunk:
             for nbchunk_conv in list_nbchunk_conv:
                 if [nbchunk, nbchunk_conv] in [[200, 10], [200, 100], [300, 100]]:

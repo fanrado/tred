@@ -186,7 +186,8 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
     NBCHUNK = NBCHUNK_SIZE
     NBCHUNK_CONV = NBCHUNK_CONV_SIZE
     # eventually replace this hard-wire with configuration
-    twindow_max = 12_000 # 12_000 * 50ns = 600us
+    # twindow_max = 12_000 # 12_000 * 50ns = 600us
+    twindow_max = 9_000 # 6_400 * 50ns = 320us ## trying to raise the Exception
     # DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     # DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     DL = 6.6270 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
@@ -225,7 +226,7 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
     chunksum_readout = ChunkSum((1,1,120))
     # chunksum_readout = ChunkSum((1,1,12000))
     # convo = LacedConvo(lacing, o_shape=(12, 12, 6912))
-    convo = LacedConvo(lacing, o_shape=(8, 8, 512*5)) #### <<---
+    convo = LacedConvo(lacing, o_shape=(8, 8, 512*4)) #### <<---
     # chunksum_i = ChunkSum((4, 4, 128), method='chunksum_inplace_v2')
     chunksum_i = ChunkSum((4, 4, 32), method='chunksum_inplace_v2')
 
@@ -326,12 +327,15 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
 
         for ibatch, (features, labels) in enumerate(loader):
             torch.cuda.reset_peak_memory_stats()
-            
+            # if (len(features[0]) < 5000) or (len(features[0]) > 9000):
+            #     continue
             stime = time.time()
             try:
+                mem_start = torch.cuda.max_memory_allocated() / 1024**2
                 if isinstance(event_list, list) and len(event_list)>0 and int(labels[0,0].numpy()) not in event_list:
                     continue
                 print('Start batch ', ibatch, ' with event id ', int(labels[0,0].numpy()))
+                print('--> Number of segments in the batch: ', len(features[0]))
                 global_tref = [features[0][0,-2].numpy(), torch.min(features[0][:,-1]).numpy()] # assume it is in us
                 # waveforms[f'global_tref_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = np.array(global_tref)
                 # waveforms[f'event_id_tpc{tpcdataset.tpc_id}_batch{ibatch}'] = labels[0,0].numpy()
@@ -477,9 +481,14 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                     continue
                 print('Start readout... ')
 
+                ## Manually run the exception 
+                # if len(features[0]) in [6229, 8211, 16384]:
+                #     Exception('Run exception test here.')
+
                 currents = chunksum_readout(currents)
                 mem_readout_chunksum = torch.cuda.max_memory_allocated() / 1024**2
-
+                # if len(features[0]) in [6229, 8211, 16384]:
+                #     raise Exception('Run exception test here.')
                 currents = concatenate_waveforms(currents, twindow_max, event_t=global_tref[1]//tspace)
                 mem_readout_concat = torch.cuda.max_memory_allocated() / 1024**2
 
@@ -510,7 +519,13 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                     'peak_memory_MB': torch.cuda.max_memory_allocated() / 1024**2,
                     'each_operation_MB': mem_each_operation
                 }
-
+                # if torch.cuda.max_memory_allocated() / 1024**2 > 10000:
+                #     print('Memory exceeded 10 GB, stopping here.')
+                #     print(f'Peak memory at the start of the batch : {mem_start} MB')
+                #     print(f'Peak memory usage : {torch.cuda.max_memory_allocated() / 1024**2} MB')
+                #     print(f'Number of segments in the batch: {len(features[0])}')
+                #     input('Press Enter to continue...')
+                # break
                 # if torch.isnan(currents.data).any():
                 #     raise ValueError
 
@@ -763,4 +778,4 @@ def fullsim(config, finpath, foutpath):
                     info('===================xxxxxxxxxxxxxxx=============')
                     info(f'Starting fullsim with batch size {b}, nbchunk {nc}, nbchunk_conv {ncc}')
                     runit(device='cuda', BATCH=b, NBCHUNK_SIZE=nc, NBCHUNK_CONV_SIZE=ncc)
-                    # sys.exit()
+                    sys.exit()

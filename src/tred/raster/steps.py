@@ -9,8 +9,8 @@ import logging
 
 logger = logging.getLogger('tred.raster.steps')
 
-# float_dtype = torch.float64
-float_dtype = torch.float32 ## Using float32 precision to recover past results
+float_dtype = torch.float64
+# float_dtype = torch.float32 ## Using float32 precision to recover past results
 
 
 def to_tensor(source, device, dtype=float_dtype):
@@ -654,7 +654,7 @@ def eval_qeff(Q, X0, X1, Sigma, offset, shape, origin, grid_spacing,
        Now it is fixed to the same as others.
     '''
     # convert sigma to float32
-    Sigma = Sigma.float()
+    # Sigma = Sigma.float()
 
     if not isinstance(Q, torch.Tensor):
         raise ValueError('Q must be a torch.Tensor')
@@ -685,6 +685,9 @@ def eval_qeff(Q, X0, X1, Sigma, offset, shape, origin, grid_spacing,
     mask_shape = [-1,] + [1,] * (len(lmn) + len(shape))
     expand_shape = [Q.size(0), *lmn] + [s.item() for s in shape]
     too_short_mask = too_short_mask.view(mask_shape).expand(*expand_shape)
+    # print(f'Q.dtype {Q.dtype}, charge.dtype {charge.dtype}')
+    # print(f'sigma.dtype {Sigma.dtype}, X0.dtype {X0.dtype}')
+    # sys.exit()
     charge = torch.where(too_short_mask,
                          eval_qmodel(Q, X0, X1, Sigma, x, y, z,
                                      qmodel=qpoint_model, **kwargs),

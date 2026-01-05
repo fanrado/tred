@@ -378,11 +378,11 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                 drifted = list(d for d in drifted)
                 min_sigma = torch.tensor([[tspace*abs(velocity)/2,
                                            pitch/10/2, pitch/10/2]]).to(device)
-                print(f'tspace dtype : {tspace.dtype}')
-                print(f'drifted[0] dtype : {drifted[0].dtype}')
+                # print(f'tspace dtype : {tspace.dtype}')
+                # print(f'drifted[0] dtype : {drifted[0].dtype}')
                 drifted[0] = torch.clamp(drifted[0], min=min_sigma)
-                print(f'drifted[0] dtype after clamp: {drifted[0].dtype}') 
-                drifted = [d.to(torch.float32) for d in drifted]
+                # print(f'drifted[0] dtype after clamp: {drifted[0].dtype}') 
+                # drifted = [d.to(torch.float32) for d in drifted]
                 if device == 'cuda':
                     torch.cuda.synchronize()
                 t03 = time.time()

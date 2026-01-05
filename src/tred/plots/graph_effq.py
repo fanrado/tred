@@ -187,7 +187,8 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
     NBCHUNK_CONV = NBCHUNK_CONV_SIZE
     # eventually replace this hard-wire with configuration
     # twindow_max = 12_000 # 12_000 * 50ns = 600us
-    twindow_max = 9_000 # 6_400 * 50ns = 320us ## trying to raise the Exception
+    # twindow_max = 9_000 # 6_400 * 50ns = 320us
+    twindow_max = 7_200 # 7_200 * 50ns = 360us # 57 cm drift length
     # DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     # DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     DL = 6.6270 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
@@ -761,21 +762,22 @@ def fullsim(config, finpath, foutpath):
     print(f'Output path: {output_path}')
 
     with torch.no_grad():
-        list_batches = [16384]
+        # list_batches = [16384]
+        list_batches = [24576]
         # list_nbchunk = [100, 300, 200]
         # list_nbchunk_conv = [50, 100, 200, 300]
         # list_nbchunk = [100, 150, 200]#, 50]
         # list_nbchunk_conv = [50, 100]
-        list_nbchunk = [100, 200, 300]
+        list_nbchunk = [100, 300]
         list_nbchunk_conv = [10, 50, 100]
         for b in list_batches:
             for nc in list_nbchunk:
                 for ncc in list_nbchunk_conv:
-                    if [nc, ncc] in [[200, 10], [200, 100], [300, 100]]:
+                    if [nc, ncc] in [[200, 10], [200, 100], [300, 100], [300, 10]]:
                         continue
                     if ncc > nc:
                         continue
                     info('===================xxxxxxxxxxxxxxx=============')
                     info(f'Starting fullsim with batch size {b}, nbchunk {nc}, nbchunk_conv {ncc}')
                     runit(device='cuda', BATCH=b, NBCHUNK_SIZE=nc, NBCHUNK_CONV_SIZE=ncc)
-                    sys.exit()
+                    # sys.exit()

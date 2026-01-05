@@ -191,7 +191,8 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
     NBCHUNK_CONV = NBCHUNK_CONV_SIZE
 
     # eventually replace this hard-wire with configuration
-    twindow_max = 12_000 # 12_000 * 50ns = 600us
+    # twindow_max = 12_000 # 12_000 * 50ns = 600us
+    twindow_max = 7_200 # 7_200 * 50ns = 360us # 57 cm drift length
     # DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     # DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     DL = 6.6270 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
@@ -377,8 +378,11 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
                 drifted = list(d for d in drifted)
                 min_sigma = torch.tensor([[tspace*abs(velocity)/2,
                                            pitch/10/2, pitch/10/2]]).to(device)
+                print(f'tspace dtype : {tspace.dtype}')
+                print(f'drifted[0] dtype : {drifted[0].dtype}')
                 drifted[0] = torch.clamp(drifted[0], min=min_sigma)
-
+                print(f'drifted[0] dtype after clamp: {drifted[0].dtype}') 
+                drifted = [d.to(torch.float32) for d in drifted]
                 if device == 'cuda':
                     torch.cuda.synchronize()
                 t03 = time.time()
@@ -704,7 +708,7 @@ def fullsim(config, finpath, foutpath):
         fres = np.load(response_path)
         # response = ndlarsim(fres['response'])
         tspace = fres['time_tick']  * units.us / units.us # us
-
+        # print(f'tspace from response file: {tspace}')
         drtoa = fres['drift_length'] * units.cm / units.cm # cm
         bin_size = fres["bin_size"] * units.cm / units.cm # cm
         warning(f'drtoa, tspace, will be overridden to {drtoa} cm, {tspace} us.')
@@ -746,7 +750,7 @@ def fullsim(config, finpath, foutpath):
         # list_nbchunk_conv = [10]
         for nbchunk in list_nbchunk:
             for nbchunk_conv in list_nbchunk_conv:
-                if [nbchunk, nbchunk_conv] in [[200, 10], [200, 100], [300, 100]]:
+                if [nbchunk, nbchunk_conv] in [[200, 10], [200, 100], [300, 100], [300, 10]]:
                         continue
                 if nbchunk_conv > nbchunk:
                     continue

@@ -186,9 +186,9 @@ def runit(device='cpu', BATCH=4096, NBCHUNK_SIZE=100, NBCHUNK_CONV_SIZE=50):
     NBCHUNK = NBCHUNK_SIZE
     NBCHUNK_CONV = NBCHUNK_CONV_SIZE
     # eventually replace this hard-wire with configuration
-    # twindow_max = 12_000 # 12_000 * 50ns = 600us
+    twindow_max = 12_000 # 12_000 * 50ns = 600us
     # twindow_max = 9_000 # 6_400 * 50ns = 320us
-    twindow_max = 7_200 # 7_200 * 50ns = 360us # 57 cm drift length
+    # twindow_max = 7_200 # 7_200 * 50ns = 360us # 57 cm drift length
     # DL = 4.0 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     # DT = 8.8 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us
     DL = 6.6270 * units.cm2/units.s / (units.cm2/units.us) # value are in cm2/us

@@ -9,8 +9,8 @@ import logging
 
 logger = logging.getLogger('tred.raster.steps')
 
-# float_dtype = torch.float64
-float_dtype = torch.float32 ## Using float32 precision to recover past results
+float_dtype = torch.float64
+# float_dtype = torch.float32 ## Using float32 precision to recover past results
 
 
 def to_tensor(source, device, dtype=float_dtype):

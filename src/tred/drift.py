@@ -187,7 +187,6 @@ def drift(locs, velocity, diffusion, lifetime, target=0,
 
     debug(f'dt:{tenstr(dt)} diffusion:{tenstr(diffusion) if isinstance(diffusion, torch.Tensor) else diffusion}')
     sigma = diffuse(dt, diffusion=diffusion, sigma=sigma)
-
     default_charge = 1000
     if charge is None:
         charge = torch.zeros(npts, dtype=torch.int32, device=locs.device)+default_charge
